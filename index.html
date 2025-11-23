@@ -47,7 +47,7 @@
             Tap to Start
         </button>
         <div class="mt-8 text-xs text-gray-500 max-w-[200px] text-center">
-            Diagnostics Mode Active.<br>Tap "Title" 3x for Logs.
+            v4.0 (Watchdog Edition)<br>Tap "Title" 3x for Logs.
         </div>
     </div>
 
@@ -140,11 +140,7 @@
             const entry = `[${time}] ${msg}`;
             systemLog.push(entry);
             console.log(entry);
-            
-            // Keep log valid size
             if(systemLog.length > 50) systemLog.shift();
-            
-            // Update UI if open
             const logBox = document.getElementById('log-output');
             if(logBox) logBox.value = systemLog.join('\n');
         }
@@ -153,14 +149,8 @@
             const logBox = document.getElementById('log-output');
             logBox.select();
             document.execCommand('copy');
-            alert("Report Copied! Paste it in the chat.");
+            alert("Report Copied!");
         }
-
-        // Init Log
-        log("App Init v3.0");
-        log("UA: " + navigator.userAgent);
-        const hasSpeech = !!(window.SpeechRecognition || window.webkitSpeechRecognition);
-        log("Speech API Support: " + hasSpeech);
 
         // --- CONFIG ---
         const VALUE_MAP = {'ace':1,'one':1,'won':1,'two':2,'to':2,'2':2,'three':3,'tree':3,'3':3,'four':4,'for':4,'4':4,'five':5,'5':5,'six':6,'6':6,'seven':7,'7':7,'eight':8,'ate':8,'8':8,'nine':9,'9':9,'ten':10,'tin':10,'10':10,'jack':11,'11':11,'queen':12,'12':12,'king':13,'13':13};
@@ -179,6 +169,8 @@
         let historyStep = -1;
         let hasTriggered = false;
         let mVal = null;
+        let watchdogTimer = null;
+        let lastAudioTimestamp = 0;
 
         // --- INIT ---
         document.getElementById('btn-start').addEventListener('click', async () => {
@@ -191,7 +183,26 @@
             document.getElementById('start-overlay').style.opacity = '0';
             setTimeout(() => document.getElementById('start-overlay').style.display = 'none', 500);
             initSpeech();
+            startWatchdog();
         });
+
+        // --- WATCHDOG (The Fix) ---
+        function startWatchdog() {
+            log("Watchdog Started");
+            setInterval(() => {
+                if (hasTriggered) return;
+                const now = Date.now();
+                // If we started listening more than 4 seconds ago but haven't heard "soundstart"
+                // OR if the speech engine is just completely idle
+                if (recognition && (now - lastAudioTimestamp > 4000)) {
+                    log("Watchdog: No audio detected for 4s. Restarting Engine.");
+                    debugText.textContent = "Status: Auto-Restarting...";
+                    statusDot.className = "absolute top-2 left-2 w-2 h-2 rounded-full bg-orange-500 animate-ping";
+                    try { recognition.abort(); } catch(e){}
+                    // Restart will happen in onend
+                }
+            }, 4000);
+        }
 
         // --- MANUAL OVERRIDE ---
         let titleClicks = 0;
@@ -200,7 +211,6 @@
             if (titleClicks === 3) {
                 log("Opening Manual/Debug Menu");
                 document.getElementById('manual-modal').style.display = 'flex';
-                // Refresh log view
                 document.getElementById('log-output').value = systemLog.join('\n');
                 titleClicks = 0;
             }
@@ -228,27 +238,31 @@
             if (recognition) { try { recognition.abort(); } catch(e){} }
 
             recognition = new SR();
-            recognition.continuous = false; // Android stability
+            recognition.continuous = false;
             recognition.interimResults = true;
-            recognition.lang = 'en-US';
+            // AUTO DETECT LANGUAGE
+            recognition.lang = navigator.language || 'en-US';
+            log("Lang set to: " + recognition.lang);
             
             recognition.onstart = () => { 
                 log("Speech: onstart");
+                lastAudioTimestamp = Date.now(); // Reset watchdog clock
                 statusDot.className = "absolute top-2 left-2 w-2 h-2 rounded-full bg-red-500 animate-pulse";
                 debugText.textContent = "Status: Listening...";
             };
             
             recognition.onsoundstart = () => {
-                 if (!debugText.textContent.includes("Heard")) {
+                 lastAudioTimestamp = Date.now(); // We are good, feed the watchdog
+                 if (!debugText.textContent.includes("Hearing")) {
                      debugText.textContent = "Status: Hearing Sound...";
                  }
             };
 
             recognition.onerror = (e) => {
                 log("Speech Err: " + e.error);
-                debugText.textContent = "Error: " + e.error;
                 if (e.error === 'not-allowed') {
                     statusDot.className = "absolute top-2 left-2 w-2 h-2 rounded-full bg-black";
+                    debugText.textContent = "Err: Permission Denied";
                 }
             };
 
@@ -257,16 +271,16 @@
                 statusDot.className = "absolute top-2 left-2 w-2 h-2 rounded-full bg-orange-300";
                 if(!hasTriggered) {
                     setTimeout(() => { 
-                        log("Attempting Restart...");
-                        try{recognition.start()}catch(e){ log("Restart Fail: "+e.message); } 
+                        log("Attempting Loop Restart...");
+                        try{recognition.start()}catch(e){} 
                     }, 200);
                 }
             };
 
             recognition.onresult = (e) => {
+                lastAudioTimestamp = Date.now(); // Feed watchdog
                 let t = e.results[0][0].transcript.toLowerCase();
-                // Only log if it's a final result or changed significantly to avoid spam
-                if(e.results[0].isFinal) log("Result (Final): " + t);
+                if(e.results[0].isFinal) log("Result: " + t);
                 
                 debugText.textContent = `Heard: "${t}"`;
                 processCode(t);
