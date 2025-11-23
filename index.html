@@ -29,19 +29,22 @@
             align-items: center;
             justify-content: center;
         }
-        /* Volume Meter */
         #meter-container {
             position: absolute;
             top: 0; left: 0; width: 100%; height: 4px;
             background: rgba(0,0,0,0.1);
             z-index: 20;
-            display: none; /* Hidden until started */
+            display: none; 
         }
         #meter-bar {
-            height: 100%;
-            width: 0%;
-            background: #22c55e; /* Green */
-            transition: width 0.1s linear;
+            height: 100%; width: 0%; background: #22c55e; transition: width 0.1s linear;
+        }
+        /* Manual Override Modal */
+        #manual-modal {
+            display: none;
+            position: fixed; top: 0; left: 0; width: 100%; height: 100%;
+            background: rgba(0,0,0,0.8); z-index: 10000;
+            align-items: center; justify-content: center;
         }
     </style>
 </head>
@@ -54,7 +57,38 @@
             Tap to Start
         </button>
         <div class="mt-8 text-xs text-gray-500 max-w-[200px] text-center">
-            Diagnostics: Requires Chrome. <br>Brave/Firefox may block voice API.
+            Diagnostics: Requires Chrome. <br>Tap "Title" 3x for manual mode.
+        </div>
+    </div>
+
+    <!-- MANUAL SELECTOR (Hidden Backup) -->
+    <div id="manual-modal">
+        <div class="bg-white p-4 rounded-lg w-3/4 max-w-sm">
+            <h2 class="text-lg font-bold mb-4">Manual Override</h2>
+            <div class="grid grid-cols-4 gap-2 mb-4">
+                <!-- Values -->
+                <button onclick="manualVal(1)" class="p-2 bg-gray-200 rounded">A</button>
+                <button onclick="manualVal(2)" class="p-2 bg-gray-200 rounded">2</button>
+                <button onclick="manualVal(3)" class="p-2 bg-gray-200 rounded">3</button>
+                <button onclick="manualVal(4)" class="p-2 bg-gray-200 rounded">4</button>
+                <button onclick="manualVal(5)" class="p-2 bg-gray-200 rounded">5</button>
+                <button onclick="manualVal(6)" class="p-2 bg-gray-200 rounded">6</button>
+                <button onclick="manualVal(7)" class="p-2 bg-gray-200 rounded">7</button>
+                <button onclick="manualVal(8)" class="p-2 bg-gray-200 rounded">8</button>
+                <button onclick="manualVal(9)" class="p-2 bg-gray-200 rounded">9</button>
+                <button onclick="manualVal(10)" class="p-2 bg-gray-200 rounded">10</button>
+                <button onclick="manualVal(11)" class="p-2 bg-gray-200 rounded">J</button>
+                <button onclick="manualVal(12)" class="p-2 bg-gray-200 rounded">Q</button>
+                <button onclick="manualVal(13)" class="p-2 bg-gray-200 rounded">K</button>
+            </div>
+            <div class="grid grid-cols-4 gap-2">
+                <!-- Suits -->
+                <button onclick="manualSuit('hearts')" class="p-2 bg-red-100 text-red-600 rounded">♥</button>
+                <button onclick="manualSuit('diamonds')" class="p-2 bg-red-100 text-red-600 rounded">♦</button>
+                <button onclick="manualSuit('clubs')" class="p-2 bg-gray-200 rounded">♣</button>
+                <button onclick="manualSuit('spades')" class="p-2 bg-gray-200 rounded">♠</button>
+            </div>
+            <button onclick="closeManual()" class="mt-4 w-full py-2 border rounded text-gray-500">Cancel</button>
         </div>
     </div>
 
@@ -62,7 +96,8 @@
     <div class="flex items-center justify-between px-4 py-3 bg-[#FDF2E3] z-10 select-none">
         <div class="flex items-center space-x-4">
             <svg class="w-6 h-6 text-gray-700" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path d="M15 18l-6-6 6-6"></path></svg>
-            <h1 class="text-xl font-medium text-gray-800 tracking-tight">Title</h1>
+            <!-- Hidden Trigger: Tap Title 3x -->
+            <h1 id="app-title" class="text-xl font-medium text-gray-800 tracking-tight active:opacity-50">Title</h1>
         </div>
         <div class="flex items-center space-x-6 text-gray-700">
             <svg class="w-6 h-6" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path d="M2 3h6a4 4 0 0 1 4 4v14a3 3 0 0 0-3-3H2z"></path><path d="M22 3h-6a4 4 0 0 0-4 4v14a3 3 0 0 1 3-3h7z"></path></svg>
@@ -73,16 +108,11 @@
 
     <!-- CANVAS AREA -->
     <div id="canvas-container" class="flex-1 relative w-full h-full cursor-crosshair">
-        <!-- Volume Meter (Diagnostic) -->
         <div id="meter-container"><div id="meter-bar"></div></div>
-
         <canvas id="drawing-canvas" class="absolute top-0 left-0 touch-none"></canvas>
-        
-        <!-- Status Dot -->
         <div id="status-dot" class="absolute top-2 left-2 w-2 h-2 rounded-full bg-gray-300 pointer-events-none"></div>
-        <!-- Debug Text -->
         <div id="debug-text" class="absolute top-5 left-2 text-[10px] text-gray-500 pointer-events-none max-w-[250px] font-mono bg-white/60 p-1 rounded border border-gray-200">
-            Waiting for start...
+            Waiting...
         </div>
     </div>
 
@@ -107,8 +137,22 @@
     </div>
 
     <script>
-        // --- CONFIG ---
-        const VALUE_MAP = {'ace':1,'one':1,'won':1,'two':2,'to':2,'three':3,'tree':3,'four':4,'for':4,'five':5,'six':6,'seven':7,'eight':8,'ate':8,'nine':9,'ten':10,'tin':10,'jack':11,'queen':12,'king':13};
+        // --- CONFIG (Updated with DIGITS) ---
+        const VALUE_MAP = {
+            'ace':1,'one':1,'won':1,
+            'two':2,'to':2,'2':2,
+            'three':3,'tree':3,'3':3,
+            'four':4,'for':4,'4':4,
+            'five':5,'5':5,
+            'six':6,'6':6,
+            'seven':7,'7':7,
+            'eight':8,'ate':8,'8':8,
+            'nine':9,'9':9,
+            'ten':10,'tin':10,'10':10,
+            'jack':11,'11':11,
+            'queen':12,'12':12,
+            'king':13,'13':13
+        };
         const SUIT_MAP = {'heart':'hearts','hearts':'hearts','diamond':'diamonds','diamonds':'diamonds','club':'clubs','clubs':'clubs','spade':'spades','spades':'spades'};
 
         // --- STATE ---
@@ -124,11 +168,12 @@
         let history = [];
         let historyStep = -1;
         let hasTriggered = false;
-        let audioContext, microphone, analyser; // For volume meter
+        
+        // Manual Mode State
+        let mVal = null;
 
         // --- INIT ---
         document.getElementById('btn-start').addEventListener('click', async () => {
-            // Full Screen
             try {
                 if (document.documentElement.requestFullscreen) await document.documentElement.requestFullscreen();
                 else if (document.documentElement.webkitRequestFullscreen) await document.documentElement.webkitRequestFullscreen();
@@ -138,106 +183,78 @@
             setTimeout(() => document.getElementById('start-overlay').style.display = 'none', 500);
             document.getElementById('meter-container').style.display = 'block';
 
-            // 1. Start Raw Audio (Volume Meter)
             initAudioMeter();
-            // 2. Start Speech API
             initSpeech();
         });
 
-        // --- AUDIO METER (DIAGNOSTIC) ---
-        async function initAudioMeter() {
-            try {
-                // Request Mic Permission explicitly
-                const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
-                
-                audioContext = new (window.AudioContext || window.webkitAudioContext)();
-                microphone = audioContext.createMediaStreamSource(stream);
-                analyser = audioContext.createAnalyser();
-                analyser.fftSize = 256;
-                microphone.connect(analyser);
+        // --- MANUAL OVERRIDE LOGIC ---
+        let titleClicks = 0;
+        document.getElementById('app-title').addEventListener('click', () => {
+            titleClicks++;
+            if (titleClicks === 3) {
+                document.getElementById('manual-modal').style.display = 'flex';
+                titleClicks = 0;
+            }
+            setTimeout(() => titleClicks = 0, 1000); // Reset if too slow
+        });
 
-                const bufferLength = analyser.frequencyBinCount;
-                const dataArray = new Uint8Array(bufferLength);
-
-                function animateMeter() {
-                    analyser.getByteFrequencyData(dataArray);
-                    // Get average volume
-                    let sum = 0;
-                    for(let i = 0; i < bufferLength; i++) sum += dataArray[i];
-                    let average = sum / bufferLength;
-                    
-                    // Visual multiplier
-                    let width = Math.min(100, average * 2); 
-                    meterBar.style.width = width + "%";
-                    
-                    if (width > 5) {
-                        // If bar moves, hardware is GOOD.
-                         if (!debugText.textContent.includes("Audio Input OK")) {
-                             // Only verify once to avoid spam
-                             console.log("Audio hardware valid");
-                         }
-                    }
-                    requestAnimationFrame(animateMeter);
-                }
-                animateMeter();
-                debugText.textContent = "Hardware: OK (Mic Active)";
-
-            } catch (err) {
-                debugText.textContent = "HARDWARE ERROR: " + err.name;
-                debugText.style.color = "red";
-                alert("Microphone permission denied or hardware error. " + err.message);
+        function manualVal(v) { mVal = v; }
+        function manualSuit(s) {
+            if (mVal) {
+                // Manual input is DIRECT (not miscalled), so we spoof it
+                // Logic expects Trigger + 2. So we must Reverse Calc to feed the function
+                // Wait... actually, let's just bypass the math for manual mode
+                document.getElementById('manual-modal').style.display = 'none';
+                revealCardDirect(mVal, s);
             }
         }
+        function closeManual() { document.getElementById('manual-modal').style.display = 'none'; }
 
-        // --- SPEECH RECOGNITION (STABILITY FIX) ---
+        // --- AUDIO METER ---
+        async function initAudioMeter() {
+            try {
+                const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+                const ac = new (window.AudioContext || window.webkitAudioContext)();
+                const mic = ac.createMediaStreamSource(stream);
+                const anal = ac.createAnalyser();
+                anal.fftSize = 256;
+                mic.connect(anal);
+                const data = new Uint8Array(anal.frequencyBinCount);
+                function drawMeter() {
+                    anal.getByteFrequencyData(data);
+                    let sum=0; for(let i=0;i<data.length;i++) sum+=data[i];
+                    meterBar.style.width = Math.min(100, (sum/data.length)*2) + "%";
+                    requestAnimationFrame(drawMeter);
+                }
+                drawMeter();
+            } catch (err) { debugText.textContent = "Mic Error: " + err.name; }
+        }
+
+        // --- SPEECH ---
         function initSpeech() {
-            const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
-            
-            if (!SpeechRecognition) {
-                debugText.innerHTML += "<br>SOFTWARE ERROR: Speech API missing (Use Chrome)";
-                return;
-            }
-
-            recognition = new SpeechRecognition();
-            // FIX: Set continuous to FALSE for Android stability. 
-            // We will restart it manually in 'onend'.
+            const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
+            if (!SR) return;
+            recognition = new SR();
             recognition.continuous = false; 
             recognition.interimResults = true;
             recognition.lang = 'en-US';
-            recognition.maxAlternatives = 1;
-
-            recognition.onstart = () => {
-                statusDot.className = "absolute top-2 left-2 w-2 h-2 rounded-full bg-red-500 animate-pulse";
-            };
-
-            recognition.onresult = (event) => {
-                let transcript = event.results[0][0].transcript.toLowerCase();
-                debugText.textContent = `Heard: "${transcript}"`;
-                processCode(transcript);
-            };
-
-            recognition.onerror = (event) => {
-                // Ignore 'no-speech' errors, just noise
-                if (event.error !== 'no-speech') {
-                    debugText.textContent = "API Err: " + event.error;
-                }
-            };
-
+            
+            recognition.onstart = () => { statusDot.className = "absolute top-2 left-2 w-2 h-2 rounded-full bg-red-500 animate-pulse"; };
             recognition.onend = () => {
                 statusDot.className = "absolute top-2 left-2 w-2 h-2 rounded-full bg-orange-300";
-                // THE LOOP: Immediately restart
-                if (!hasTriggered) {
-                    setTimeout(() => {
-                        try { recognition.start(); } catch(e){}
-                    }, 100); 
-                }
+                if(!hasTriggered) setTimeout(() => { try{recognition.start()}catch(e){} }, 100);
             };
-
+            recognition.onresult = (e) => {
+                let t = e.results[0][0].transcript.toLowerCase();
+                debugText.textContent = `Heard: "${t}"`;
+                processCode(t);
+            };
             try { recognition.start(); } catch(e){}
         }
 
         function processCode(text) {
             if (hasTriggered) return;
+            // Updated Splitter: keep digits
             const words = text.split(/[^a-z0-9]+/); 
             let val = null, suit = null;
             words.forEach(w => {
@@ -250,11 +267,51 @@
                 debugText.textContent = `MATCH: ${val} of ${suit}`;
                 debugText.style.color = "green";
                 if(recognition) recognition.stop();
-                revealCard(val, suit);
+                revealCard(val, suit); // Use math version
             }
         }
 
-        // --- DRAWING & REVEAL ---
+        // --- REVEAL LOGIC ---
+        function revealCard(tVal, tSuit) {
+            // Miscall Logic: Trigger + 2
+            let rVal = tVal + 2; if(rVal > 13) rVal -= 13;
+            let rSuit = '';
+            if(tSuit==='hearts') rSuit='diamonds'; else if(tSuit==='diamonds') rSuit='hearts';
+            else if(tSuit==='clubs') rSuit='spades'; else if(tSuit==='spades') rSuit='clubs';
+            drawFinalCard(rVal, rSuit);
+        }
+
+        function revealCardDirect(val, suit) {
+            // Manual mode calls this - no math applied
+            drawFinalCard(val, suit);
+        }
+
+        function drawFinalCard(val, suit) {
+            const faceMap = {1:'ace',11:'jack',12:'queen',13:'king'};
+            const vStr = faceMap[val]||val;
+            const img = new Image();
+            img.crossOrigin = "anonymous";
+            // Check specific GitHub URL
+            img.src = `https://raw.githubusercontent.com/hayeah/playing-cards-assets/master/png/${vStr}_of_${suit}.png`;
+            
+            img.onload = () => {
+                ctx.clearRect(0,0,canvas.width,canvas.height);
+                const w=250, h=363;
+                const x=(canvas.width-w)/2, y=(canvas.height-h)/2;
+                ctx.save(); ctx.translate(x+w/2, y+h/2);
+                ctx.rotate((Math.random()-0.5)*0.15);
+                ctx.drawImage(img, -w/2, -h/2, w, h);
+                ctx.restore();
+                saveHistory();
+            };
+            img.onerror = () => {
+                debugText.textContent = "IMG LOAD ERROR! Check Internet.";
+                debugText.style.color = "red";
+                alert("Could not load card image. Check internet connection.");
+            };
+        }
+
+        // --- DRAWING ---
         function resize() {
             canvas.width = canvas.parentElement.offsetWidth;
             canvas.height = canvas.parentElement.offsetHeight;
@@ -270,49 +327,18 @@
             else { x=e.clientX; y=e.clientY; }
             return {x: x-r.left, y: y-r.top};
         }
-
-        function start(e) {
-            isDrawing = true;
-            const p = getPos(e);
-            ctx.beginPath(); ctx.moveTo(p.x, p.y);
-        }
-        function move(e) {
-            if(!isDrawing) return;
-            const p = getPos(e);
+        function start(e) { isDrawing = true; const p=getPos(e); ctx.beginPath(); ctx.moveTo(p.x, p.y); }
+        function move(e) { 
+            if(!isDrawing) return; const p=getPos(e);
             if(tool==='eraser'){ ctx.globalCompositeOperation='destination-out'; ctx.lineWidth=20; }
             else { ctx.globalCompositeOperation='source-over'; ctx.lineWidth=3; }
             ctx.lineTo(p.x, p.y); ctx.stroke();
         }
         function end() { if(isDrawing){ isDrawing=false; saveHistory(); } }
-
         canvas.addEventListener('mousedown', start); canvas.addEventListener('mousemove', move); canvas.addEventListener('mouseup', end);
         canvas.addEventListener('touchstart', start, {passive:false}); canvas.addEventListener('touchmove', move, {passive:false}); canvas.addEventListener('touchend', end);
 
-        // --- HELPERS ---
-        function revealCard(tVal, tSuit) {
-            // Calc
-            let rVal = tVal + 2; if(rVal > 13) rVal -= 13;
-            let rSuit = '';
-            if(tSuit==='hearts') rSuit='diamonds'; else if(tSuit==='diamonds') rSuit='hearts';
-            else if(tSuit==='clubs') rSuit='spades'; else if(tSuit==='spades') rSuit='clubs';
-            
-            const faceMap = {1:'ace',11:'jack',12:'queen',13:'king'};
-            const vStr = faceMap[rVal]||rVal;
-            const img = new Image();
-            img.crossOrigin = "anonymous";
-            img.src = `https://raw.githubusercontent.com/hayeah/playing-cards-assets/master/png/${vStr}_of_${rSuit}.png`;
-            img.onload = () => {
-                ctx.clearRect(0,0,canvas.width,canvas.height);
-                const w=250, h=363;
-                const x=(canvas.width-w)/2, y=(canvas.height-h)/2;
-                ctx.save(); ctx.translate(x+w/2, y+h/2);
-                ctx.rotate((Math.random()-0.5)*0.15);
-                ctx.drawImage(img, -w/2, -h/2, w, h);
-                ctx.restore();
-                saveHistory();
-            };
-        }
-
+        // --- UI ---
         function saveHistory() {
             if(historyStep < history.length-1) history = history.slice(0, historyStep+1);
             history.push(canvas.toDataURL()); historyStep++;
