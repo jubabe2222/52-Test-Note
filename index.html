@@ -25,7 +25,7 @@
             Tap to Start
         </button>
         <div class="mt-8 text-xs text-gray-500 max-w-[200px] text-center">
-            v8.0 (Sidecar Stream)<br>Look for Green Bar at top!
+            v9.0 (The Relay Race)<br>Tap 3x on Title for Logs
         </div>
     </div>
 
@@ -116,20 +116,20 @@
         let historyStep = -1;
         let hasTriggered = false;
         let mVal = null;
-        let lastAudioTimestamp = 0;
-        let sidecarStream = null; // v8.0 Feature
+        let sidecarStream = null;
+        let handoffComplete = false;
 
-        // --- SIDECAR STREAM (v8.0) ---
-        // Keeps the microphone active even if Speech API sleeps
-        async function startSidecar() {
-            log("Starting Sidecar Stream...");
+        // --- RELAY RACE LOGIC (v9.0) ---
+        async function startRelay() {
+            log("Stage 1: Warming up mic (Sidecar)...");
             document.getElementById('meter-container').style.display = 'block';
+            debugText.textContent = "Status: Hardware Check...";
+
             try {
-                // Open mic and KEEP IT OPEN
+                // 1. Start Hardware Stream
                 sidecarStream = await navigator.mediaDevices.getUserMedia({ audio: true });
-                log("Sidecar: ACTIVE (Driver should be awake)");
                 
-                // Connect to Volume Meter
+                // 2. Setup Meter
                 const ac = new (window.AudioContext || window.webkitAudioContext)();
                 const mic = ac.createMediaStreamSource(sidecarStream);
                 const anal = ac.createAnalyser();
@@ -137,27 +137,60 @@
                 mic.connect(anal);
                 const data = new Uint8Array(anal.frequencyBinCount);
                 
-                function drawMeter() {
-                    if (!sidecarStream) return;
+                let checkFrame = 0;
+                function checkHardware() {
+                    if (handoffComplete) return; // Stop if we already passed the baton
+                    
                     anal.getByteFrequencyData(data);
-                    let sum = 0; 
-                    for(let i=0; i<data.length; i++) sum += data[i];
+                    let sum = 0; for(let i=0; i<data.length; i++) sum += data[i];
                     const avg = sum / data.length;
                     
+                    // Show visual feedback
                     meterBar.style.width = Math.min(100, avg * 3) + "%";
                     
-                    // Log if we actually hear something
-                    if (avg > 10 && !debugText.textContent.includes("Driver OK")) {
-                         log("Sidecar: Audio Level Detected! Hardware is GOOD.");
+                    // IF WE HEAR SOUND -> HANDOFF
+                    // Use a threshold (fan noise usually > 10)
+                    if (avg > 5 && checkFrame > 10) {
+                        log("Stage 1 SUCCESS: Audio detected ("+avg.toFixed(0)+").");
+                        performHandoff();
+                        return; 
                     }
-                    requestAnimationFrame(drawMeter);
+                    
+                    checkFrame++;
+                    // Timeout after 3 seconds if silence (force handoff anyway)
+                    if (checkFrame > 180) { // 60fps * 3s
+                        log("Stage 1 Timeout: Forcing Handoff.");
+                        performHandoff();
+                        return;
+                    }
+                    
+                    requestAnimationFrame(checkHardware);
                 }
-                drawMeter();
+                checkHardware();
 
             } catch (err) {
-                log("Sidecar FAILED: " + err.message);
-                debugText.textContent = "Err: Sidecar Blocked";
+                log("Stage 1 FAILED: " + err.message);
+                debugText.textContent = "Err: Mic Blocked";
             }
+        }
+
+        function performHandoff() {
+            if(handoffComplete) return;
+            handoffComplete = true;
+
+            // 1. KILL SIDECAR
+            log("Stage 2: Releasing Mic...");
+            if (sidecarStream) {
+                sidecarStream.getTracks().forEach(track => track.stop());
+                sidecarStream = null;
+            }
+            document.getElementById('meter-container').style.display = 'none';
+
+            // 2. WAIT A MOMENT
+            setTimeout(() => {
+                log("Stage 3: Starting Brain...");
+                initSpeech();
+            }, 200); // 200ms breathing room for OS
         }
 
         document.getElementById('btn-start').addEventListener('click', async () => {
@@ -166,23 +199,8 @@
             document.getElementById('start-overlay').style.opacity = '0';
             setTimeout(() => document.getElementById('start-overlay').style.display = 'none', 500);
             
-            // 1. Start Sidecar (Forces Hardware ON)
-            startSidecar();
-            // 2. Start Speech API (Parallel)
-            setTimeout(initSpeech, 500);
+            startRelay();
         });
-
-        // --- WATCHDOG ---
-        function startWatchdog() {
-            setInterval(() => {
-                if (hasTriggered) return;
-                const now = Date.now();
-                if (recognition && (now - lastAudioTimestamp > 8000)) {
-                    log("Watchdog: Silence 8s. Restarting Speech Engine.");
-                    try { recognition.stop(); } catch(e){}
-                }
-            }, 8000);
-        }
 
         // --- SPEECH ---
         function initSpeech() {
@@ -192,24 +210,22 @@
             if (recognition) { try { recognition.abort(); } catch(e){} }
 
             recognition = new SR();
-            recognition.continuous = true;
+            recognition.continuous = false; // Short bursts are safer after a handoff
             recognition.interimResults = true;
             recognition.lang = navigator.language || 'en-US';
+            recognition.maxAlternatives = 1;
             
             recognition.onstart = () => { 
                 log("Speech: onstart");
-                lastAudioTimestamp = Date.now();
                 statusDot.className = "absolute top-2 left-2 w-2 h-2 rounded-full bg-red-500 animate-pulse";
                 debugText.textContent = "Status: Listening...";
             };
             
             recognition.onsoundstart = () => {
-                 lastAudioTimestamp = Date.now();
                  if (!debugText.textContent.includes("Hearing")) debugText.textContent = "Status: Hearing Sound...";
             };
 
             recognition.onerror = (e) => {
-                // If sidecar is running, ignore 'audio-capture' errors as they might just conflict lightly
                 log("Speech Err: " + e.error);
                 if (e.error === 'not-allowed') debugText.textContent = "Err: Permission Denied";
             };
@@ -218,15 +234,15 @@
                 log("Speech: onend");
                 statusDot.className = "absolute top-2 left-2 w-2 h-2 rounded-full bg-orange-300";
                 if(!hasTriggered) {
+                    // Loop Restart logic
                     setTimeout(() => { 
-                        log("Restarting...");
+                        log("Loop Restart...");
                         try{recognition.start()}catch(e){} 
                     }, 200);
                 }
             };
 
             recognition.onresult = (e) => {
-                lastAudioTimestamp = Date.now();
                 let t = "";
                 for (let i = e.resultIndex; i < e.results.length; ++i) t += e.results[i][0].transcript;
                 t = t.toLowerCase();
@@ -236,7 +252,7 @@
                 processCode(t);
             };
 
-            try { recognition.start(); log("recognition.start()"); startWatchdog(); } catch(e){ log("Start Exception: "+e.message); }
+            try { recognition.start(); log("recognition.start()"); } catch(e){ log("Start Exception: "+e.message); }
         }
 
         function processCode(text) {
@@ -254,9 +270,6 @@
                 debugText.style.color = "green";
                 if(recognition) recognition.stop();
                 revealCard(val, suit);
-                
-                // Close Sidecar to save battery
-                if (sidecarStream) sidecarStream.getTracks().forEach(t => t.stop());
             }
         }
 
