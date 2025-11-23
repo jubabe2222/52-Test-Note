@@ -32,8 +32,9 @@
         #manual-modal {
             display: none;
             position: fixed; top: 0; left: 0; width: 100%; height: 100%;
-            background: rgba(0,0,0,0.8); z-index: 10000;
+            background: rgba(0,0,0,0.85); z-index: 10000;
             align-items: center; justify-content: center;
+            overflow-y: auto;
         }
     </style>
 </head>
@@ -46,14 +47,16 @@
             Tap to Start
         </button>
         <div class="mt-8 text-xs text-gray-500 max-w-[200px] text-center">
-            Diagnostics: Audio Meter Removed.<br>Optimized for Chrome Android.
+            Diagnostics Mode Active.<br>Tap "Title" 3x for Logs.
         </div>
     </div>
 
-    <!-- MANUAL SELECTOR (Hidden Backup) -->
+    <!-- MANUAL SELECTOR & DEBUG REPORT -->
     <div id="manual-modal">
-        <div class="bg-white p-4 rounded-lg w-3/4 max-w-sm">
-            <h2 class="text-lg font-bold mb-4">Manual Override</h2>
+        <div class="bg-white p-4 rounded-lg w-11/12 max-w-sm max-h-[90vh] overflow-y-auto">
+            <h2 class="text-lg font-bold mb-2">Manual Override</h2>
+            
+            <!-- Manual Controls -->
             <div class="grid grid-cols-4 gap-2 mb-4">
                 <button onclick="manualVal(1)" class="p-2 bg-gray-200 rounded">A</button>
                 <button onclick="manualVal(2)" class="p-2 bg-gray-200 rounded">2</button>
@@ -69,13 +72,21 @@
                 <button onclick="manualVal(12)" class="p-2 bg-gray-200 rounded">Q</button>
                 <button onclick="manualVal(13)" class="p-2 bg-gray-200 rounded">K</button>
             </div>
-            <div class="grid grid-cols-4 gap-2">
+            <div class="grid grid-cols-4 gap-2 mb-6">
                 <button onclick="manualSuit('hearts')" class="p-2 bg-red-100 text-red-600 rounded">♥</button>
                 <button onclick="manualSuit('diamonds')" class="p-2 bg-red-100 text-red-600 rounded">♦</button>
                 <button onclick="manualSuit('clubs')" class="p-2 bg-gray-200 rounded">♣</button>
                 <button onclick="manualSuit('spades')" class="p-2 bg-gray-200 rounded">♠</button>
             </div>
-            <button onclick="closeManual()" class="mt-4 w-full py-2 border rounded text-gray-500">Cancel</button>
+
+            <hr class="border-gray-300 mb-4">
+
+            <!-- DEBUG REPORT AREA -->
+            <h2 class="text-lg font-bold mb-2 text-red-600">System Log</h2>
+            <textarea id="log-output" class="w-full h-32 text-xs font-mono bg-gray-100 p-2 border rounded mb-2" readonly></textarea>
+            <button onclick="copyLog()" class="w-full py-2 bg-gray-800 text-white rounded mb-2">Copy Report</button>
+            
+            <button onclick="closeManual()" class="w-full py-2 border rounded text-gray-500">Close</button>
         </div>
     </div>
 
@@ -122,22 +133,37 @@
     </div>
 
     <script>
+        // --- FLIGHT RECORDER ---
+        let systemLog = [];
+        function log(msg) {
+            const time = new Date().toISOString().split('T')[1].slice(0,8);
+            const entry = `[${time}] ${msg}`;
+            systemLog.push(entry);
+            console.log(entry);
+            
+            // Keep log valid size
+            if(systemLog.length > 50) systemLog.shift();
+            
+            // Update UI if open
+            const logBox = document.getElementById('log-output');
+            if(logBox) logBox.value = systemLog.join('\n');
+        }
+
+        function copyLog() {
+            const logBox = document.getElementById('log-output');
+            logBox.select();
+            document.execCommand('copy');
+            alert("Report Copied! Paste it in the chat.");
+        }
+
+        // Init Log
+        log("App Init v3.0");
+        log("UA: " + navigator.userAgent);
+        const hasSpeech = !!(window.SpeechRecognition || window.webkitSpeechRecognition);
+        log("Speech API Support: " + hasSpeech);
+
         // --- CONFIG ---
-        const VALUE_MAP = {
-            'ace':1,'one':1,'won':1,
-            'two':2,'to':2,'2':2,
-            'three':3,'tree':3,'3':3,
-            'four':4,'for':4,'4':4,
-            'five':5,'5':5,
-            'six':6,'6':6,
-            'seven':7,'7':7,
-            'eight':8,'ate':8,'8':8,
-            'nine':9,'9':9,
-            'ten':10,'tin':10,'10':10,
-            'jack':11,'11':11,
-            'queen':12,'12':12,
-            'king':13,'13':13
-        };
+        const VALUE_MAP = {'ace':1,'one':1,'won':1,'two':2,'to':2,'2':2,'three':3,'tree':3,'3':3,'four':4,'for':4,'4':4,'five':5,'5':5,'six':6,'6':6,'seven':7,'7':7,'eight':8,'ate':8,'8':8,'nine':9,'9':9,'ten':10,'tin':10,'10':10,'jack':11,'11':11,'queen':12,'12':12,'king':13,'13':13};
         const SUIT_MAP = {'heart':'hearts','hearts':'hearts','diamond':'diamonds','diamonds':'diamonds','club':'clubs','clubs':'clubs','spade':'spades','spades':'spades'};
 
         // --- STATE ---
@@ -153,14 +179,14 @@
         let historyStep = -1;
         let hasTriggered = false;
         let mVal = null;
-        let retryCount = 0;
 
         // --- INIT ---
         document.getElementById('btn-start').addEventListener('click', async () => {
+            log("User Tapped Start");
             try {
                 if (document.documentElement.requestFullscreen) await document.documentElement.requestFullscreen();
                 else if (document.documentElement.webkitRequestFullscreen) await document.documentElement.webkitRequestFullscreen();
-            } catch(e){}
+            } catch(e){ log("Fullscreen Error: " + e.message); }
 
             document.getElementById('start-overlay').style.opacity = '0';
             setTimeout(() => document.getElementById('start-overlay').style.display = 'none', 500);
@@ -172,13 +198,17 @@
         document.getElementById('app-title').addEventListener('click', () => {
             titleClicks++;
             if (titleClicks === 3) {
+                log("Opening Manual/Debug Menu");
                 document.getElementById('manual-modal').style.display = 'flex';
+                // Refresh log view
+                document.getElementById('log-output').value = systemLog.join('\n');
                 titleClicks = 0;
             }
             setTimeout(() => titleClicks = 0, 1000);
         });
-        function manualVal(v) { mVal = v; }
+        function manualVal(v) { mVal = v; log("Manual Val: "+v); }
         function manualSuit(s) {
+            log("Manual Suit: "+s);
             if (mVal) {
                 document.getElementById('manual-modal').style.display = 'none';
                 revealCardDirect(mVal, s);
@@ -190,55 +220,62 @@
         function initSpeech() {
             const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
             if (!SR) {
-                debugText.textContent = "Error: API Not Supported (Use Chrome)";
+                log("CRITICAL: API Missing");
+                debugText.textContent = "Error: API Not Supported";
                 return;
             }
 
-            // Cleanup
             if (recognition) { try { recognition.abort(); } catch(e){} }
 
             recognition = new SR();
-            // Continuous false is safer on Android loop
-            recognition.continuous = false; 
+            recognition.continuous = false; // Android stability
             recognition.interimResults = true;
             recognition.lang = 'en-US';
             
             recognition.onstart = () => { 
+                log("Speech: onstart");
                 statusDot.className = "absolute top-2 left-2 w-2 h-2 rounded-full bg-red-500 animate-pulse";
                 debugText.textContent = "Status: Listening...";
             };
             
             recognition.onsoundstart = () => {
-                 // Update UI only if not showing a result yet
                  if (!debugText.textContent.includes("Heard")) {
                      debugText.textContent = "Status: Hearing Sound...";
                  }
             };
 
             recognition.onerror = (e) => {
+                log("Speech Err: " + e.error);
                 debugText.textContent = "Error: " + e.error;
-                // If not-allowed, stop retrying
                 if (e.error === 'not-allowed') {
                     statusDot.className = "absolute top-2 left-2 w-2 h-2 rounded-full bg-black";
                 }
             };
 
             recognition.onend = () => {
+                log("Speech: onend");
                 statusDot.className = "absolute top-2 left-2 w-2 h-2 rounded-full bg-orange-300";
                 if(!hasTriggered) {
                     setTimeout(() => { 
-                        try{recognition.start()}catch(e){} 
+                        log("Attempting Restart...");
+                        try{recognition.start()}catch(e){ log("Restart Fail: "+e.message); } 
                     }, 200);
                 }
             };
 
             recognition.onresult = (e) => {
                 let t = e.results[0][0].transcript.toLowerCase();
+                // Only log if it's a final result or changed significantly to avoid spam
+                if(e.results[0].isFinal) log("Result (Final): " + t);
+                
                 debugText.textContent = `Heard: "${t}"`;
                 processCode(t);
             };
 
-            try { recognition.start(); } catch(e){}
+            try { 
+                recognition.start(); 
+                log("recognition.start() called");
+            } catch(e){ log("Start Exception: "+e.message); }
         }
 
         function processCode(text) {
@@ -251,6 +288,7 @@
             });
 
             if (val && suit) {
+                log(`MATCH FOUND: ${val} of ${suit}`);
                 hasTriggered = true;
                 debugText.textContent = `MATCH: ${val} of ${suit}`;
                 debugText.style.color = "green";
@@ -270,12 +308,14 @@
         function revealCardDirect(val, suit) { drawFinalCard(val, suit); }
 
         function drawFinalCard(val, suit) {
+            log(`Drawing: ${val} of ${suit}`);
             const faceMap = {1:'ace',11:'jack',12:'queen',13:'king'};
             const vStr = faceMap[val]||val;
             const img = new Image();
             img.crossOrigin = "anonymous";
             img.src = `https://raw.githubusercontent.com/hayeah/playing-cards-assets/master/png/${vStr}_of_${suit}.png`;
             img.onload = () => {
+                log("Img Loaded. Render.");
                 ctx.clearRect(0,0,canvas.width,canvas.height);
                 const w=250, h=363;
                 const x=(canvas.width-w)/2, y=(canvas.height-h)/2;
@@ -285,6 +325,7 @@
                 ctx.restore();
                 saveHistory();
             };
+            img.onerror = () => log("Img Load Failed!");
         }
 
         // --- DRAWING ---
