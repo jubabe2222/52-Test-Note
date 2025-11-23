@@ -29,17 +29,6 @@
             align-items: center;
             justify-content: center;
         }
-        #meter-container {
-            position: absolute;
-            top: 0; left: 0; width: 100%; height: 4px;
-            background: rgba(0,0,0,0.1);
-            z-index: 20;
-            display: none; 
-        }
-        #meter-bar {
-            height: 100%; width: 0%; background: #22c55e; transition: width 0.1s linear;
-        }
-        /* Manual Override Modal */
         #manual-modal {
             display: none;
             position: fixed; top: 0; left: 0; width: 100%; height: 100%;
@@ -57,7 +46,7 @@
             Tap to Start
         </button>
         <div class="mt-8 text-xs text-gray-500 max-w-[200px] text-center">
-            Diagnostics: Requires Chrome. <br>Tap "Title" 3x for manual mode.
+            Diagnostics: Audio Meter Removed.<br>Optimized for Chrome Android.
         </div>
     </div>
 
@@ -66,7 +55,6 @@
         <div class="bg-white p-4 rounded-lg w-3/4 max-w-sm">
             <h2 class="text-lg font-bold mb-4">Manual Override</h2>
             <div class="grid grid-cols-4 gap-2 mb-4">
-                <!-- Values -->
                 <button onclick="manualVal(1)" class="p-2 bg-gray-200 rounded">A</button>
                 <button onclick="manualVal(2)" class="p-2 bg-gray-200 rounded">2</button>
                 <button onclick="manualVal(3)" class="p-2 bg-gray-200 rounded">3</button>
@@ -82,7 +70,6 @@
                 <button onclick="manualVal(13)" class="p-2 bg-gray-200 rounded">K</button>
             </div>
             <div class="grid grid-cols-4 gap-2">
-                <!-- Suits -->
                 <button onclick="manualSuit('hearts')" class="p-2 bg-red-100 text-red-600 rounded">♥</button>
                 <button onclick="manualSuit('diamonds')" class="p-2 bg-red-100 text-red-600 rounded">♦</button>
                 <button onclick="manualSuit('clubs')" class="p-2 bg-gray-200 rounded">♣</button>
@@ -96,7 +83,6 @@
     <div class="flex items-center justify-between px-4 py-3 bg-[#FDF2E3] z-10 select-none">
         <div class="flex items-center space-x-4">
             <svg class="w-6 h-6 text-gray-700" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path d="M15 18l-6-6 6-6"></path></svg>
-            <!-- Hidden Trigger: Tap Title 3x -->
             <h1 id="app-title" class="text-xl font-medium text-gray-800 tracking-tight active:opacity-50">Title</h1>
         </div>
         <div class="flex items-center space-x-6 text-gray-700">
@@ -108,11 +94,10 @@
 
     <!-- CANVAS AREA -->
     <div id="canvas-container" class="flex-1 relative w-full h-full cursor-crosshair">
-        <div id="meter-container"><div id="meter-bar"></div></div>
         <canvas id="drawing-canvas" class="absolute top-0 left-0 touch-none"></canvas>
         <div id="status-dot" class="absolute top-2 left-2 w-2 h-2 rounded-full bg-gray-300 pointer-events-none"></div>
-        <div id="debug-text" class="absolute top-5 left-2 text-[10px] text-gray-500 pointer-events-none max-w-[250px] font-mono bg-white/60 p-1 rounded border border-gray-200">
-            Waiting...
+        <div id="debug-text" class="absolute top-5 left-2 text-[10px] text-gray-500 pointer-events-none max-w-[250px] font-mono bg-white/80 p-1 rounded border border-gray-200">
+            Status: Idle
         </div>
     </div>
 
@@ -137,7 +122,7 @@
     </div>
 
     <script>
-        // --- CONFIG (Updated with DIGITS) ---
+        // --- CONFIG ---
         const VALUE_MAP = {
             'ace':1,'one':1,'won':1,
             'two':2,'to':2,'2':2,
@@ -160,7 +145,6 @@
         const ctx = canvas.getContext('2d');
         const debugText = document.getElementById('debug-text');
         const statusDot = document.getElementById('status-dot');
-        const meterBar = document.getElementById('meter-bar');
         
         let recognition;
         let isDrawing = false;
@@ -168,9 +152,8 @@
         let history = [];
         let historyStep = -1;
         let hasTriggered = false;
-        
-        // Manual Mode State
         let mVal = null;
+        let retryCount = 0;
 
         // --- INIT ---
         document.getElementById('btn-start').addEventListener('click', async () => {
@@ -181,13 +164,10 @@
 
             document.getElementById('start-overlay').style.opacity = '0';
             setTimeout(() => document.getElementById('start-overlay').style.display = 'none', 500);
-            document.getElementById('meter-container').style.display = 'block';
-
-            initAudioMeter();
             initSpeech();
         });
 
-        // --- MANUAL OVERRIDE LOGIC ---
+        // --- MANUAL OVERRIDE ---
         let titleClicks = 0;
         document.getElementById('app-title').addEventListener('click', () => {
             titleClicks++;
@@ -195,66 +175,74 @@
                 document.getElementById('manual-modal').style.display = 'flex';
                 titleClicks = 0;
             }
-            setTimeout(() => titleClicks = 0, 1000); // Reset if too slow
+            setTimeout(() => titleClicks = 0, 1000);
         });
-
         function manualVal(v) { mVal = v; }
         function manualSuit(s) {
             if (mVal) {
-                // Manual input is DIRECT (not miscalled), so we spoof it
-                // Logic expects Trigger + 2. So we must Reverse Calc to feed the function
-                // Wait... actually, let's just bypass the math for manual mode
                 document.getElementById('manual-modal').style.display = 'none';
                 revealCardDirect(mVal, s);
             }
         }
         function closeManual() { document.getElementById('manual-modal').style.display = 'none'; }
 
-        // --- AUDIO METER ---
-        async function initAudioMeter() {
-            try {
-                const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
-                const ac = new (window.AudioContext || window.webkitAudioContext)();
-                const mic = ac.createMediaStreamSource(stream);
-                const anal = ac.createAnalyser();
-                anal.fftSize = 256;
-                mic.connect(anal);
-                const data = new Uint8Array(anal.frequencyBinCount);
-                function drawMeter() {
-                    anal.getByteFrequencyData(data);
-                    let sum=0; for(let i=0;i<data.length;i++) sum+=data[i];
-                    meterBar.style.width = Math.min(100, (sum/data.length)*2) + "%";
-                    requestAnimationFrame(drawMeter);
-                }
-                drawMeter();
-            } catch (err) { debugText.textContent = "Mic Error: " + err.name; }
-        }
-
         // --- SPEECH ---
         function initSpeech() {
             const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
-            if (!SR) return;
+            if (!SR) {
+                debugText.textContent = "Error: API Not Supported (Use Chrome)";
+                return;
+            }
+
+            // Cleanup
+            if (recognition) { try { recognition.abort(); } catch(e){} }
+
             recognition = new SR();
+            // Continuous false is safer on Android loop
             recognition.continuous = false; 
             recognition.interimResults = true;
             recognition.lang = 'en-US';
             
-            recognition.onstart = () => { statusDot.className = "absolute top-2 left-2 w-2 h-2 rounded-full bg-red-500 animate-pulse"; };
+            recognition.onstart = () => { 
+                statusDot.className = "absolute top-2 left-2 w-2 h-2 rounded-full bg-red-500 animate-pulse";
+                debugText.textContent = "Status: Listening...";
+            };
+            
+            recognition.onsoundstart = () => {
+                 // Update UI only if not showing a result yet
+                 if (!debugText.textContent.includes("Heard")) {
+                     debugText.textContent = "Status: Hearing Sound...";
+                 }
+            };
+
+            recognition.onerror = (e) => {
+                debugText.textContent = "Error: " + e.error;
+                // If not-allowed, stop retrying
+                if (e.error === 'not-allowed') {
+                    statusDot.className = "absolute top-2 left-2 w-2 h-2 rounded-full bg-black";
+                }
+            };
+
             recognition.onend = () => {
                 statusDot.className = "absolute top-2 left-2 w-2 h-2 rounded-full bg-orange-300";
-                if(!hasTriggered) setTimeout(() => { try{recognition.start()}catch(e){} }, 100);
+                if(!hasTriggered) {
+                    setTimeout(() => { 
+                        try{recognition.start()}catch(e){} 
+                    }, 200);
+                }
             };
+
             recognition.onresult = (e) => {
                 let t = e.results[0][0].transcript.toLowerCase();
                 debugText.textContent = `Heard: "${t}"`;
                 processCode(t);
             };
+
             try { recognition.start(); } catch(e){}
         }
 
         function processCode(text) {
             if (hasTriggered) return;
-            // Updated Splitter: keep digits
             const words = text.split(/[^a-z0-9]+/); 
             let val = null, suit = null;
             words.forEach(w => {
@@ -267,13 +255,11 @@
                 debugText.textContent = `MATCH: ${val} of ${suit}`;
                 debugText.style.color = "green";
                 if(recognition) recognition.stop();
-                revealCard(val, suit); // Use math version
+                revealCard(val, suit);
             }
         }
 
-        // --- REVEAL LOGIC ---
         function revealCard(tVal, tSuit) {
-            // Miscall Logic: Trigger + 2
             let rVal = tVal + 2; if(rVal > 13) rVal -= 13;
             let rSuit = '';
             if(tSuit==='hearts') rSuit='diamonds'; else if(tSuit==='diamonds') rSuit='hearts';
@@ -281,19 +267,14 @@
             drawFinalCard(rVal, rSuit);
         }
 
-        function revealCardDirect(val, suit) {
-            // Manual mode calls this - no math applied
-            drawFinalCard(val, suit);
-        }
+        function revealCardDirect(val, suit) { drawFinalCard(val, suit); }
 
         function drawFinalCard(val, suit) {
             const faceMap = {1:'ace',11:'jack',12:'queen',13:'king'};
             const vStr = faceMap[val]||val;
             const img = new Image();
             img.crossOrigin = "anonymous";
-            // Check specific GitHub URL
             img.src = `https://raw.githubusercontent.com/hayeah/playing-cards-assets/master/png/${vStr}_of_${suit}.png`;
-            
             img.onload = () => {
                 ctx.clearRect(0,0,canvas.width,canvas.height);
                 const w=250, h=363;
@@ -303,11 +284,6 @@
                 ctx.drawImage(img, -w/2, -h/2, w, h);
                 ctx.restore();
                 saveHistory();
-            };
-            img.onerror = () => {
-                debugText.textContent = "IMG LOAD ERROR! Check Internet.";
-                debugText.style.color = "red";
-                alert("Could not load card image. Check internet connection.");
             };
         }
 
