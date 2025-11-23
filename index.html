@@ -23,7 +23,7 @@
             Tap to Start
         </button>
         <div class="mt-8 text-xs text-gray-500 max-w-[200px] text-center">
-            v5.0 (Hardware Jumpstart)<br>Tap "Title" 3x for Logs.
+            v6.0 (Slow Handover)<br>Tap "Title" 3x for Logs.
         </div>
     </div>
 
@@ -39,7 +39,12 @@
             <div class="grid grid-cols-4 gap-2 mb-6">
                 <button onclick="manualSuit('hearts')" class="p-2 bg-red-100 text-red-600 rounded">♥</button><button onclick="manualSuit('diamonds')" class="p-2 bg-red-100 text-red-600 rounded">♦</button><button onclick="manualSuit('clubs')" class="p-2 bg-gray-200 rounded">♣</button><button onclick="manualSuit('spades')" class="p-2 bg-gray-200 rounded">♠</button>
             </div>
+            
             <hr class="border-gray-300 mb-4">
+            
+            <!-- EMERGENCY CONTROLS -->
+            <button onclick="jumpstartAudio()" class="w-full py-3 bg-red-600 text-white font-bold rounded mb-4 shadow-md active:bg-red-700">FORCE RESET MIC</button>
+
             <h2 class="text-lg font-bold mb-2 text-red-600">System Log</h2>
             <textarea id="log-output" class="w-full h-32 text-xs font-mono bg-gray-100 p-2 border rounded mb-2" readonly></textarea>
             <button onclick="copyLog()" class="w-full py-2 bg-gray-800 text-white rounded mb-2">Copy Report</button>
@@ -113,20 +118,33 @@
         let mVal = null;
         let lastAudioTimestamp = 0;
 
-        // --- HARDWARE JUMPSTART ---
+        // --- HARDWARE JUMPSTART v6.0 (Slow Handover) ---
         async function jumpstartAudio() {
-            log("Attempting Hardware Jumpstart...");
+            log("Attempting Hardware Jumpstart v6.0...");
+            
+            // Clean up old instance if exists
+            if (recognition) { try{ recognition.abort(); }catch(e){} }
+
             try {
                 // Request RAW audio first to force driver ON
                 const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
                 log("Hardware Driver: ACTIVE (Stream Acquired)");
+                debugText.textContent = "Status: Hardware Wakeup...";
                 
-                // Hold it open for 500ms to ensure stability
+                // Hold it open briefly
                 setTimeout(() => {
                     log("Releasing Hardware Stream...");
                     stream.getTracks().forEach(track => track.stop()); // Close raw stream
-                    log("Handing off to Speech API...");
-                    initSpeech(); // Start actual recognition
+                    
+                    // CRITICAL FIX: The Cooling Period
+                    log("Waiting 1s for driver release...");
+                    debugText.textContent = "Status: Cooling Driver...";
+
+                    setTimeout(() => {
+                        log("Handing off to Speech API...");
+                        initSpeech(); // Start actual recognition
+                    }, 1000); // 1 second buffer
+
                 }, 500);
 
             } catch (err) {
@@ -141,7 +159,6 @@
             document.getElementById('start-overlay').style.opacity = '0';
             setTimeout(() => document.getElementById('start-overlay').style.display = 'none', 500);
             
-            // USE THE NEW JUMPSTART METHOD
             jumpstartAudio();
         });
 
@@ -150,20 +167,18 @@
             setInterval(() => {
                 if (hasTriggered) return;
                 const now = Date.now();
-                if (recognition && (now - lastAudioTimestamp > 6000)) {
-                    log("Watchdog: Silence for 6s. Hard Restart.");
+                if (recognition && (now - lastAudioTimestamp > 8000)) { // Increased to 8s due to handover delay
+                    log("Watchdog: Silence for 8s. Hard Restart.");
                     try { recognition.abort(); } catch(e){}
-                    // Restart will trigger via onend
                 }
-            }, 6000);
+            }, 8000);
         }
 
         // --- SPEECH ---
         function initSpeech() {
             const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
             if (!SR) return log("CRITICAL: API Missing");
-            if (recognition) { try { recognition.abort(); } catch(e){} }
-
+            
             recognition = new SR();
             recognition.continuous = false;
             recognition.interimResults = true;
