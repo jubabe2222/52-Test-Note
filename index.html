@@ -12,6 +12,8 @@
         #canvas-container { background-image: radial-gradient(#d4c5b0 1.5px, transparent 1.5px); background-size: 24px 24px; }
         #start-overlay { position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: #FDF2E3; z-index: 9999; display: flex; flex-direction: column; align-items: center; justify-content: center; }
         #manual-modal { display: none; position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0,0,0,0.85); z-index: 10000; align-items: center; justify-content: center; overflow-y: auto; }
+        #meter-container { position: absolute; top: 0; left: 0; width: 100%; height: 6px; background: rgba(0,0,0,0.1); z-index: 20; display: none; }
+        #meter-bar { height: 100%; width: 0%; background: #22c55e; transition: width 0.05s linear; }
     </style>
 </head>
 <body class="h-screen w-screen flex flex-col bg-[#FDF2E3] text-[#252525] font-sans overflow-hidden">
@@ -23,7 +25,7 @@
             Tap to Start
         </button>
         <div class="mt-8 text-xs text-gray-500 max-w-[200px] text-center">
-            v7.0 (Audio Wake-Lock)<br>Tap "Title" 3x for Logs.
+            v8.0 (Sidecar Stream)<br>Look for Green Bar at top!
         </div>
     </div>
 
@@ -62,6 +64,7 @@
 
     <!-- CANVAS AREA -->
     <div id="canvas-container" class="flex-1 relative w-full h-full cursor-crosshair">
+        <div id="meter-container"><div id="meter-bar"></div></div>
         <canvas id="drawing-canvas" class="absolute top-0 left-0 touch-none"></canvas>
         <div id="status-dot" class="absolute top-2 left-2 w-2 h-2 rounded-full bg-gray-300 pointer-events-none"></div>
         <div id="debug-text" class="absolute top-5 left-2 text-[10px] text-gray-500 pointer-events-none max-w-[250px] font-mono bg-white/80 p-1 rounded border border-gray-200">Status: Idle</div>
@@ -104,6 +107,8 @@
         const ctx = canvas.getContext('2d');
         const debugText = document.getElementById('debug-text');
         const statusDot = document.getElementById('status-dot');
+        const meterBar = document.getElementById('meter-bar');
+        
         let recognition;
         let isDrawing = false;
         let tool = 'pen';
@@ -112,33 +117,46 @@
         let hasTriggered = false;
         let mVal = null;
         let lastAudioTimestamp = 0;
+        let sidecarStream = null; // v8.0 Feature
 
-        // --- THE AUDIO WAKE-LOCK (v7.0) ---
-        function activateWakeLock() {
-            log("Activating Audio Wake-Lock...");
+        // --- SIDECAR STREAM (v8.0) ---
+        // Keeps the microphone active even if Speech API sleeps
+        async function startSidecar() {
+            log("Starting Sidecar Stream...");
+            document.getElementById('meter-container').style.display = 'block';
             try {
-                const AudioContext = window.AudioContext || window.webkitAudioContext;
-                const audioCtx = new AudioContext();
-                const oscillator = audioCtx.createOscillator();
-                const gainNode = audioCtx.createGain();
+                // Open mic and KEEP IT OPEN
+                sidecarStream = await navigator.mediaDevices.getUserMedia({ audio: true });
+                log("Sidecar: ACTIVE (Driver should be awake)");
                 
-                oscillator.type = 'sine';
-                oscillator.frequency.value = 440; // Hz
-                gainNode.gain.value = 0.0001; // Effectively silent but active
+                // Connect to Volume Meter
+                const ac = new (window.AudioContext || window.webkitAudioContext)();
+                const mic = ac.createMediaStreamSource(sidecarStream);
+                const anal = ac.createAnalyser();
+                anal.fftSize = 256;
+                mic.connect(anal);
+                const data = new Uint8Array(anal.frequencyBinCount);
                 
-                oscillator.connect(gainNode);
-                gainNode.connect(audioCtx.destination);
-                
-                oscillator.start();
-                log("Wake-Lock Active (Silent Tone Playing)");
-                
-                // Keep it alive for 1s then kill it (just to wake driver)
-                setTimeout(() => {
-                    oscillator.stop();
-                    log("Wake-Lock Released");
-                }, 1000);
-            } catch (e) {
-                log("Wake-Lock Failed: " + e.message);
+                function drawMeter() {
+                    if (!sidecarStream) return;
+                    anal.getByteFrequencyData(data);
+                    let sum = 0; 
+                    for(let i=0; i<data.length; i++) sum += data[i];
+                    const avg = sum / data.length;
+                    
+                    meterBar.style.width = Math.min(100, avg * 3) + "%";
+                    
+                    // Log if we actually hear something
+                    if (avg > 10 && !debugText.textContent.includes("Driver OK")) {
+                         log("Sidecar: Audio Level Detected! Hardware is GOOD.");
+                    }
+                    requestAnimationFrame(drawMeter);
+                }
+                drawMeter();
+
+            } catch (err) {
+                log("Sidecar FAILED: " + err.message);
+                debugText.textContent = "Err: Sidecar Blocked";
             }
         }
 
@@ -148,18 +166,19 @@
             document.getElementById('start-overlay').style.opacity = '0';
             setTimeout(() => document.getElementById('start-overlay').style.display = 'none', 500);
             
-            activateWakeLock(); // Wake up OS audio
-            setTimeout(initSpeech, 200); // Slight delay for Speech API
+            // 1. Start Sidecar (Forces Hardware ON)
+            startSidecar();
+            // 2. Start Speech API (Parallel)
+            setTimeout(initSpeech, 500);
         });
 
-        // --- WATCHDOG (Restart if Stuck) ---
+        // --- WATCHDOG ---
         function startWatchdog() {
             setInterval(() => {
                 if (hasTriggered) return;
                 const now = Date.now();
-                // If silence for 8 seconds, kick it
                 if (recognition && (now - lastAudioTimestamp > 8000)) {
-                    log("Watchdog: Silence 8s. Restarting.");
+                    log("Watchdog: Silence 8s. Restarting Speech Engine.");
                     try { recognition.stop(); } catch(e){}
                 }
             }, 8000);
@@ -173,7 +192,7 @@
             if (recognition) { try { recognition.abort(); } catch(e){} }
 
             recognition = new SR();
-            recognition.continuous = true; // REVERTED to True for stability
+            recognition.continuous = true;
             recognition.interimResults = true;
             recognition.lang = navigator.language || 'en-US';
             
@@ -190,9 +209,9 @@
             };
 
             recognition.onerror = (e) => {
+                // If sidecar is running, ignore 'audio-capture' errors as they might just conflict lightly
                 log("Speech Err: " + e.error);
                 if (e.error === 'not-allowed') debugText.textContent = "Err: Permission Denied";
-                // Ignore 'no-speech' errors in continuous mode
             };
 
             recognition.onend = () => {
@@ -202,17 +221,14 @@
                     setTimeout(() => { 
                         log("Restarting...");
                         try{recognition.start()}catch(e){} 
-                    }, 500);
+                    }, 200);
                 }
             };
 
             recognition.onresult = (e) => {
                 lastAudioTimestamp = Date.now();
                 let t = "";
-                // Combine results for continuous mode
-                for (let i = e.resultIndex; i < e.results.length; ++i) {
-                    t += e.results[i][0].transcript;
-                }
+                for (let i = e.resultIndex; i < e.results.length; ++i) t += e.results[i][0].transcript;
                 t = t.toLowerCase();
                 
                 if(e.results[e.results.length-1].isFinal) log("Result: " + t);
@@ -238,6 +254,9 @@
                 debugText.style.color = "green";
                 if(recognition) recognition.stop();
                 revealCard(val, suit);
+                
+                // Close Sidecar to save battery
+                if (sidecarStream) sidecarStream.getTracks().forEach(t => t.stop());
             }
         }
 
