@@ -1,0 +1,356 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>Notes</title>
+    <!-- Tailwind CSS for styling -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    <style>
+        body {
+            overscroll-behavior: none; /* Prevent pull-to-refresh on mobile */
+            user-select: none;
+            -webkit-user-select: none;
+        }
+        #canvas-container {
+            background-image: radial-gradient(#d4c5b0 1.5px, transparent 1.5px);
+            background-size: 24px 24px;
+        }
+        /* Hide scrollbars */
+        ::-webkit-scrollbar { width: 0px; background: transparent; }
+    </style>
+</head>
+<body class="h-screen w-screen flex flex-col bg-[#FDF2E3] text-[#252525] font-sans overflow-hidden">
+
+    <!-- HEADER -->
+    <div class="flex items-center justify-between px-4 py-3 bg-[#FDF2E3] z-10 select-none">
+        <div class="flex items-center space-x-4">
+            <!-- Back Arrow -->
+            <svg class="w-6 h-6 text-gray-700" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path d="M15 18l-6-6 6-6"></path></svg>
+            <h1 class="text-xl font-medium text-gray-800 tracking-tight">Title</h1>
+        </div>
+        <div class="flex items-center space-x-6 text-gray-700">
+            <!-- Book Icon -->
+            <svg class="w-6 h-6" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path d="M2 3h6a4 4 0 0 1 4 4v14a3 3 0 0 0-3-3H2z"></path><path d="M22 3h-6a4 4 0 0 0-4 4v14a3 3 0 0 1 3-3h7z"></path></svg>
+            <!-- Plus Icon -->
+            <svg class="w-6 h-6" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><line x1="12" y1="5" x2="12" y2="19"></line><line x1="5" y1="12" x2="19" y2="12"></line></svg>
+            <!-- Menu Icon -->
+            <svg class="w-6 h-6" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><circle cx="12" cy="12" r="1"></circle><circle cx="12" cy="5" r="1"></circle><circle cx="12" cy="19" r="1"></circle></svg>
+        </div>
+    </div>
+
+    <!-- CANVAS AREA -->
+    <div id="canvas-container" class="flex-1 relative w-full h-full cursor-crosshair">
+        <canvas id="drawing-canvas" class="absolute top-0 left-0 touch-none"></canvas>
+        
+        <!-- Debug Indicator (Tiny dot top left) -->
+        <div id="status-dot" class="absolute top-2 left-2 w-2 h-2 rounded-full bg-gray-300 pointer-events-none transition-colors duration-300"></div>
+        <div id="debug-text" class="absolute top-5 left-2 text-[10px] text-gray-400 opacity-0 pointer-events-none"></div>
+    </div>
+
+    <!-- FOOTER TOOLBAR -->
+    <div class="h-16 bg-[#FDF2E3] border-t border-[#e8dac5] flex items-center justify-between px-2 pb-2 select-none z-10">
+        <!-- Tools -->
+        <div class="flex items-center space-x-1">
+            <button id="btn-pen" class="p-2 rounded-lg bg-[#252525] text-white transition-colors">
+                <svg class="w-5 h-5 fill-current" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 19l7-7 3 3-7 7-3-3z"></path><path d="M18 13l-1.5-7.5L2 2l3.5 14.5L13 18l5-5z"></path><path d="M2 2l7.586 7.586"></path><circle cx="11" cy="11" r="2"></circle></svg>
+            </button>
+            <button id="btn-eraser" class="p-2 rounded-lg text-gray-800 transition-colors">
+                <div class="w-5 h-5 border-2 border-current rounded-full"></div>
+            </button>
+        </div>
+
+        <!-- Fake formatting buttons -->
+        <div class="flex items-center space-x-4 text-gray-600">
+            <svg class="w-5 h-5" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><polyline points="9 11 12 14 22 4"></polyline><path d="M21 12v7a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11"></path></svg>
+            <svg class="w-5 h-5" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><line x1="17" y1="10" x2="3" y2="10"></line><line x1="21" y1="6" x2="3" y2="6"></line><line x1="21" y1="14" x2="3" y2="14"></line><line x1="17" y1="18" x2="3" y2="18"></line></svg>
+            <svg class="w-5 h-5" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><polyline points="4 7 4 4 20 4 20 7"></polyline><line x1="9" y1="20" x2="15" y2="20"></line><line x1="12" y1="4" x2="12" y2="20"></line></svg>
+            <svg class="w-5 h-5" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><rect x="3" y="3" width="18" height="18" rx="2" ry="2"></rect><circle cx="8.5" cy="8.5" r="1.5"></circle><polyline points="21 15 16 10 5 21"></polyline></svg>
+        </div>
+
+        <!-- Undo/Redo -->
+        <div class="flex items-center space-x-3 text-gray-600">
+            <div class="flex items-center text-sm font-medium mr-2">18</div>
+            <button id="btn-undo">
+                <svg class="w-5 h-5" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><polyline points="1 4 1 10 7 10"></polyline><path d="M3.51 15a9 9 0 1 0 2.13-9.36L1 10"></path></svg>
+            </button>
+            <button>
+                <svg class="w-5 h-5 text-gray-400" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><polyline points="23 4 23 10 17 10"></polyline><path d="M20.49 15a9 9 0 1 1-2.12-9.36L23 10"></path></svg>
+            </button>
+        </div>
+    </div>
+
+    <script>
+        // --- 1. CONFIGURATION ---
+        const VALUE_MAP = {
+            'ace': 1, 'one': 1, 'won': 1,
+            'two': 2, 'to': 2, 'too': 2,
+            'three': 3, 'tree': 3,
+            'four': 4, 'for': 4,
+            'five': 5,
+            'six': 6,
+            'seven': 7,
+            'eight': 8, 'ate': 8,
+            'nine': 9,
+            'ten': 10, 'tin': 10,
+            'jack': 11,
+            'queen': 12,
+            'king': 13
+        };
+
+        const SUIT_MAP = {
+            'heart': 'hearts', 'hearts': 'hearts',
+            'diamond': 'diamonds', 'diamonds': 'diamonds',
+            'club': 'clubs', 'clubs': 'clubs',
+            'spade': 'spades', 'spades': 'spades'
+        };
+
+        // --- 2. APP STATE ---
+        const canvas = document.getElementById('drawing-canvas');
+        const ctx = canvas.getContext('2d');
+        const container = document.getElementById('canvas-container');
+        const statusDot = document.getElementById('status-dot');
+        const debugText = document.getElementById('debug-text');
+
+        let isDrawing = false;
+        let tool = 'pen'; // 'pen' or 'eraser'
+        let history = [];
+        let historyStep = -1;
+        let recognition = null;
+        let isListening = false;
+
+        // --- 3. INIT & RESIZE ---
+        function resize() {
+            canvas.width = container.offsetWidth;
+            canvas.height = container.offsetHeight;
+            setupContext();
+        }
+
+        function setupContext() {
+            ctx.lineCap = 'round';
+            ctx.lineJoin = 'round';
+            ctx.lineWidth = 3;
+            ctx.strokeStyle = '#252525';
+        }
+
+        window.addEventListener('resize', resize);
+        // Initial setup
+        setTimeout(resize, 100);
+
+        // --- 4. DRAWING ENGINE ---
+        function getPos(e) {
+            const rect = canvas.getBoundingClientRect();
+            let clientX, clientY;
+            if (e.changedTouches) {
+                clientX = e.changedTouches[0].clientX;
+                clientY = e.changedTouches[0].clientY;
+            } else {
+                clientX = e.clientX;
+                clientY = e.clientY;
+            }
+            return {
+                x: clientX - rect.left,
+                y: clientY - rect.top
+            };
+        }
+
+        function startDrawing(e) {
+            // e.preventDefault(); // Removed to allow standard touch behaviors if needed, add back if scrolling issues occur
+            
+            // MAGIC: Start listening on first touch
+            initVoice();
+
+            isDrawing = true;
+            const pos = getPos(e);
+            ctx.beginPath();
+            ctx.moveTo(pos.x, pos.y);
+        }
+
+        function draw(e) {
+            if (!isDrawing) return;
+            // e.preventDefault();
+            const pos = getPos(e);
+            
+            if (tool === 'eraser') {
+                ctx.globalCompositeOperation = 'destination-out';
+                ctx.lineWidth = 20;
+            } else {
+                ctx.globalCompositeOperation = 'source-over';
+                ctx.lineWidth = 3;
+                ctx.strokeStyle = '#252525';
+            }
+            
+            ctx.lineTo(pos.x, pos.y);
+            ctx.stroke();
+        }
+
+        function stopDrawing() {
+            if (!isDrawing) return;
+            isDrawing = false;
+            saveHistory();
+        }
+
+        // Event Listeners
+        canvas.addEventListener('mousedown', startDrawing);
+        canvas.addEventListener('mousemove', draw);
+        canvas.addEventListener('mouseup', stopDrawing);
+        canvas.addEventListener('mouseout', stopDrawing);
+
+        canvas.addEventListener('touchstart', startDrawing, {passive: false});
+        canvas.addEventListener('touchmove', draw, {passive: false});
+        canvas.addEventListener('touchend', stopDrawing);
+
+        // --- 5. HISTORY (UNDO) ---
+        function saveHistory() {
+            if (historyStep < history.length - 1) {
+                history = history.slice(0, historyStep + 1);
+            }
+            history.push(canvas.toDataURL());
+            historyStep++;
+        }
+
+        function handleUndo() {
+            if (historyStep > 0) {
+                historyStep--;
+                restoreHistory(historyStep);
+            } else {
+                clearCanvas();
+                historyStep = -1;
+            }
+        }
+
+        function restoreHistory(index) {
+            const img = new Image();
+            img.src = history[index];
+            img.onload = () => {
+                ctx.clearRect(0, 0, canvas.width, canvas.height);
+                ctx.globalCompositeOperation = 'source-over';
+                ctx.drawImage(img, 0, 0);
+            };
+        }
+
+        function clearCanvas() {
+            ctx.clearRect(0, 0, canvas.width, canvas.height);
+        }
+
+        document.getElementById('btn-undo').addEventListener('click', handleUndo);
+
+        // Tools
+        document.getElementById('btn-pen').addEventListener('click', () => {
+            tool = 'pen';
+            document.getElementById('btn-pen').classList.add('bg-[#252525]', 'text-white');
+            document.getElementById('btn-pen').classList.remove('text-gray-800');
+            document.getElementById('btn-eraser').classList.remove('bg-[#252525]', 'text-white');
+            document.getElementById('btn-eraser').classList.add('text-gray-800');
+        });
+
+        document.getElementById('btn-eraser').addEventListener('click', () => {
+            tool = 'eraser';
+            document.getElementById('btn-eraser').classList.add('bg-[#252525]', 'text-white');
+            document.getElementById('btn-eraser').classList.remove('text-gray-800');
+            document.getElementById('btn-pen').classList.remove('bg-[#252525]', 'text-white');
+            document.getElementById('btn-pen').classList.add('text-gray-800');
+        });
+
+
+        // --- 6. MAGIC VOICE RECOGNITION ---
+        function initVoice() {
+            if (isListening) return; // Already running
+
+            const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
+            
+            if (!SpeechRecognition) {
+                alert("Voice features not supported on this browser.");
+                return;
+            }
+
+            recognition = new SpeechRecognition();
+            recognition.continuous = true;
+            recognition.interimResults = false;
+            recognition.lang = 'en-US';
+
+            recognition.onstart = () => {
+                isListening = true;
+                statusDot.classList.remove('bg-gray-300');
+                statusDot.classList.add('bg-red-500'); // Visual feedback
+            };
+
+            recognition.onend = () => {
+                isListening = false;
+                statusDot.classList.remove('bg-red-500');
+                statusDot.classList.add('bg-gray-300');
+                // Auto restart
+                recognition.start();
+            };
+
+            recognition.onresult = (event) => {
+                const lastResult = event.results[event.results.length - 1][0].transcript.toLowerCase();
+                debugText.textContent = lastResult; // Optional debug
+                processCode(lastResult);
+            };
+
+            try {
+                recognition.start();
+            } catch (err) {
+                console.log("Recognition start error", err);
+            }
+        }
+
+        function processCode(text) {
+            const words = text.split(' ');
+            let detectedValue = null;
+            let detectedSuit = null;
+
+            // Simple loop to find keywords
+            words.forEach(word => {
+                const cleanWord = word.replace(/[^a-z0-9]/g, '');
+                if (VALUE_MAP[cleanWord]) detectedValue = VALUE_MAP[cleanWord];
+                if (SUIT_MAP[cleanWord]) detectedSuit = SUIT_MAP[cleanWord];
+            });
+
+            if (detectedValue && detectedSuit) {
+                revealMagic(detectedValue, detectedSuit);
+            }
+        }
+
+        function revealMagic(triggerVal, triggerSuit) {
+            // LOGIC: Val + 2, Twin Suit
+            let targetVal = triggerVal + 2;
+            if (targetVal > 13) targetVal -= 13;
+
+            let targetSuit = '';
+            if (triggerSuit === 'hearts') targetSuit = 'diamonds';
+            if (triggerSuit === 'diamonds') targetSuit = 'hearts';
+            if (triggerSuit === 'clubs') targetSuit = 'spades';
+            if (triggerSuit === 'spades') targetSuit = 'clubs';
+
+            const faceMap = { 1: 'ace', 11: 'jack', 12: 'queen', 13: 'king' };
+            const valStr = faceMap[targetVal] || targetVal;
+
+            const imgUrl = `https://raw.githubusercontent.com/hayeah/playing-cards-assets/master/png/${valStr}_of_${targetSuit}.png`;
+
+            const img = new Image();
+            img.crossOrigin = "anonymous";
+            img.src = imgUrl;
+            img.onload = () => {
+                ctx.clearRect(0,0, canvas.width, canvas.height);
+                
+                // Draw card with slight rotation
+                const w = 250;
+                const h = 363;
+                const x = (canvas.width - w) / 2;
+                const y = (canvas.height - h) / 2;
+
+                ctx.save();
+                ctx.translate(x + w/2, y + h/2);
+                ctx.rotate((Math.random() - 0.5) * 0.15); // Random tilt
+                ctx.drawImage(img, -w/2, -h/2, w, h);
+                ctx.restore();
+                
+                saveHistory(); // Allow undo to hide the reveal!
+            };
+        }
+
+    </script>
+</body>
+</html>
