@@ -12,8 +12,9 @@
         #canvas-container { background-image: radial-gradient(#d4c5b0 1.5px, transparent 1.5px); background-size: 24px 24px; }
         #start-overlay { position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: #FDF2E3; z-index: 9999; display: flex; flex-direction: column; align-items: center; justify-content: center; }
         #manual-modal { display: none; position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0,0,0,0.85); z-index: 10000; align-items: center; justify-content: center; overflow-y: auto; }
-        #meter-container { position: absolute; top: 0; left: 0; width: 100%; height: 6px; background: rgba(0,0,0,0.1); z-index: 20; display: none; }
-        #meter-bar { height: 100%; width: 0%; background: #22c55e; transition: width 0.05s linear; }
+        /* Hidden Meter */
+        #meter-container { position: absolute; top: 0; left: 0; width: 100%; height: 2px; background: transparent; z-index: 20; opacity: 0; pointer-events: none; }
+        #meter-bar { height: 100%; width: 0%; background: #22c55e; }
     </style>
 </head>
 <body class="h-screen w-screen flex flex-col bg-[#FDF2E3] text-[#252525] font-sans overflow-hidden">
@@ -22,11 +23,8 @@
     <div id="start-overlay">
         <div class="text-2xl font-bold text-gray-800 mb-4">Samsung Notes</div>
         <button id="btn-start" class="px-8 py-3 bg-[#252525] text-white rounded-full text-lg shadow-lg active:scale-95 transition-transform">
-            Tap to Start
+            Tap to Open
         </button>
-        <div class="mt-8 text-xs text-gray-500 max-w-[200px] text-center">
-            v9.0 (The Relay Race)<br>Tap 3x on Title for Logs
-        </div>
     </div>
 
     <!-- MANUAL SELECTOR & DEBUG REPORT -->
@@ -66,8 +64,12 @@
     <div id="canvas-container" class="flex-1 relative w-full h-full cursor-crosshair">
         <div id="meter-container"><div id="meter-bar"></div></div>
         <canvas id="drawing-canvas" class="absolute top-0 left-0 touch-none"></canvas>
+        
+        <!-- VISIBLE FEEDBACK -->
         <div id="status-dot" class="absolute top-2 left-2 w-2 h-2 rounded-full bg-gray-300 pointer-events-none"></div>
-        <div id="debug-text" class="absolute top-5 left-2 text-[10px] text-gray-500 pointer-events-none max-w-[250px] font-mono bg-white/80 p-1 rounded border border-gray-200">Status: Idle</div>
+        <div id="debug-text" class="absolute top-5 left-2 text-[10px] text-gray-400 pointer-events-none max-w-[200px] font-mono leading-tight">
+            Rx: Idle
+        </div>
     </div>
 
     <!-- FOOTER -->
@@ -85,18 +87,16 @@
     </div>
 
     <script>
-        // --- FLIGHT RECORDER ---
+        // --- LOGGING ---
         let systemLog = [];
         function log(msg) {
             const time = new Date().toISOString().split('T')[1].slice(0,8);
-            const entry = `[${time}] ${msg}`;
-            systemLog.push(entry);
-            console.log(entry);
+            systemLog.push(`[${time}] ${msg}`);
             if(systemLog.length > 50) systemLog.shift();
             const logBox = document.getElementById('log-output');
             if(logBox) logBox.value = systemLog.join('\n');
         }
-        function copyLog() { document.getElementById('log-output').select(); document.execCommand('copy'); alert("Report Copied!"); }
+        function copyLog() { document.getElementById('log-output').select(); document.execCommand('copy'); alert("Copied!"); }
 
         // --- CONFIG ---
         const VALUE_MAP = {'ace':1,'one':1,'won':1,'two':2,'to':2,'2':2,'three':3,'tree':3,'3':3,'four':4,'for':4,'4':4,'five':5,'5':5,'six':6,'6':6,'seven':7,'7':7,'eight':8,'ate':8,'8':8,'nine':9,'9':9,'ten':10,'tin':10,'10':10,'jack':11,'11':11,'queen':12,'12':12,'king':13,'13':13};
@@ -105,9 +105,9 @@
         // --- STATE ---
         const canvas = document.getElementById('drawing-canvas');
         const ctx = canvas.getContext('2d');
+        const meterBar = document.getElementById('meter-bar');
         const debugText = document.getElementById('debug-text');
         const statusDot = document.getElementById('status-dot');
-        const meterBar = document.getElementById('meter-bar');
         
         let recognition;
         let isDrawing = false;
@@ -119,17 +119,12 @@
         let sidecarStream = null;
         let handoffComplete = false;
 
-        // --- RELAY RACE LOGIC (v9.0) ---
+        // --- SOFT HANDOFF LOGIC (v11.0) ---
         async function startRelay() {
-            log("Stage 1: Warming up mic (Sidecar)...");
-            document.getElementById('meter-container').style.display = 'block';
-            debugText.textContent = "Status: Hardware Check...";
-
+            log("Stage 1: Mic Warmup...");
+            debugText.textContent = "Rx: Warmup...";
             try {
-                // 1. Start Hardware Stream
                 sidecarStream = await navigator.mediaDevices.getUserMedia({ audio: true });
-                
-                // 2. Setup Meter
                 const ac = new (window.AudioContext || window.webkitAudioContext)();
                 const mic = ac.createMediaStreamSource(sidecarStream);
                 const anal = ac.createAnalyser();
@@ -139,38 +134,31 @@
                 
                 let checkFrame = 0;
                 function checkHardware() {
-                    if (handoffComplete) return; // Stop if we already passed the baton
-                    
+                    if (handoffComplete) return;
                     anal.getByteFrequencyData(data);
                     let sum = 0; for(let i=0; i<data.length; i++) sum += data[i];
                     const avg = sum / data.length;
                     
-                    // Show visual feedback
                     meterBar.style.width = Math.min(100, avg * 3) + "%";
                     
-                    // IF WE HEAR SOUND -> HANDOFF
-                    // Use a threshold (fan noise usually > 10)
                     if (avg > 5 && checkFrame > 10) {
-                        log("Stage 1 SUCCESS: Audio detected ("+avg.toFixed(0)+").");
+                        log("Audio Detected ("+avg.toFixed(0)+"). Handoff.");
                         performHandoff();
                         return; 
                     }
-                    
                     checkFrame++;
-                    // Timeout after 3 seconds if silence (force handoff anyway)
-                    if (checkFrame > 180) { // 60fps * 3s
-                        log("Stage 1 Timeout: Forcing Handoff.");
+                    if (checkFrame > 180) { // 3s Timeout
+                        log("Warmup Timeout. Forcing Handoff.");
                         performHandoff();
                         return;
                     }
-                    
                     requestAnimationFrame(checkHardware);
                 }
                 checkHardware();
-
             } catch (err) {
-                log("Stage 1 FAILED: " + err.message);
-                debugText.textContent = "Err: Mic Blocked";
+                log("Warmup Failed: " + err.message);
+                // Try speech anyway
+                initSpeech();
             }
         }
 
@@ -178,67 +166,54 @@
             if(handoffComplete) return;
             handoffComplete = true;
 
-            // 1. KILL SIDECAR
-            log("Stage 2: Releasing Mic...");
-            if (sidecarStream) {
-                sidecarStream.getTracks().forEach(track => track.stop());
-                sidecarStream = null;
-            }
-            document.getElementById('meter-container').style.display = 'none';
+            // v11: Don't kill Sidecar yet. Start Speech FIRST.
+            log("Starting Speech Engine...");
+            initSpeech();
 
-            // 2. WAIT A MOMENT
+            // Kill Sidecar after Speech has hopefully grabbed the shared stream
             setTimeout(() => {
-                log("Stage 3: Starting Brain...");
-                initSpeech();
-            }, 200); // 200ms breathing room for OS
+                log("Releasing Sidecar...");
+                if (sidecarStream) {
+                    sidecarStream.getTracks().forEach(track => track.stop());
+                    sidecarStream = null;
+                }
+            }, 1000); // 1s Overlap
         }
 
         document.getElementById('btn-start').addEventListener('click', async () => {
-            log("User Tapped Start");
+            log("App Started");
             try { if (document.documentElement.requestFullscreen) await document.documentElement.requestFullscreen(); } catch(e){}
             document.getElementById('start-overlay').style.opacity = '0';
             setTimeout(() => document.getElementById('start-overlay').style.display = 'none', 500);
-            
             startRelay();
         });
 
         // --- SPEECH ---
         function initSpeech() {
             const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
-            if (!SR) return log("CRITICAL: API Missing");
-            
+            if (!SR) return log("API Missing");
             if (recognition) { try { recognition.abort(); } catch(e){} }
 
             recognition = new SR();
-            recognition.continuous = false; // Short bursts are safer after a handoff
+            recognition.continuous = false;
             recognition.interimResults = true;
             recognition.lang = navigator.language || 'en-US';
-            recognition.maxAlternatives = 1;
             
-            recognition.onstart = () => { 
-                log("Speech: onstart");
+            recognition.onstart = () => {
+                log("Speech Listening");
                 statusDot.className = "absolute top-2 left-2 w-2 h-2 rounded-full bg-red-500 animate-pulse";
-                debugText.textContent = "Status: Listening...";
+                debugText.textContent = "Rx: 👂 Listening...";
             };
             
             recognition.onsoundstart = () => {
-                 if (!debugText.textContent.includes("Hearing")) debugText.textContent = "Status: Hearing Sound...";
-            };
-
-            recognition.onerror = (e) => {
-                log("Speech Err: " + e.error);
-                if (e.error === 'not-allowed') debugText.textContent = "Err: Permission Denied";
+                debugText.textContent = "Rx: 🔊 Sound...";
             };
 
             recognition.onend = () => {
-                log("Speech: onend");
                 statusDot.className = "absolute top-2 left-2 w-2 h-2 rounded-full bg-orange-300";
+                debugText.textContent = "Rx: Processing...";
                 if(!hasTriggered) {
-                    // Loop Restart logic
-                    setTimeout(() => { 
-                        log("Loop Restart...");
-                        try{recognition.start()}catch(e){} 
-                    }, 200);
+                    setTimeout(() => { try{recognition.start()}catch(e){} }, 200);
                 }
             };
 
@@ -247,12 +222,14 @@
                 for (let i = e.resultIndex; i < e.results.length; ++i) t += e.results[i][0].transcript;
                 t = t.toLowerCase();
                 
-                if(e.results[e.results.length-1].isFinal) log("Result: " + t);
+                // VISIBLE FEEDBACK
                 debugText.textContent = `Heard: "${t}"`;
+                
+                if(e.results[e.results.length-1].isFinal) log("Heard: " + t);
                 processCode(t);
             };
 
-            try { recognition.start(); log("recognition.start()"); } catch(e){ log("Start Exception: "+e.message); }
+            try { recognition.start(); } catch(e){ log("Start Err: "+e.message); }
         }
 
         function processCode(text) {
@@ -266,8 +243,6 @@
             if (val && suit) {
                 log(`MATCH: ${val} of ${suit}`);
                 hasTriggered = true;
-                debugText.textContent = `MATCH: ${val} of ${suit}`;
-                debugText.style.color = "green";
                 if(recognition) recognition.stop();
                 revealCard(val, suit);
             }
@@ -284,14 +259,13 @@
         function revealCardDirect(val, suit) { drawFinalCard(val, suit); }
 
         function drawFinalCard(val, suit) {
-            log(`Drawing: ${val} of ${suit}`);
+            log(`Revealing: ${val} of ${suit}`);
             const faceMap = {1:'ace',11:'jack',12:'queen',13:'king'};
             const vStr = faceMap[val]||val;
             const img = new Image();
             img.crossOrigin = "anonymous";
             img.src = `https://raw.githubusercontent.com/hayeah/playing-cards-assets/master/png/${vStr}_of_${suit}.png`;
             img.onload = () => {
-                log("Render Success");
                 ctx.clearRect(0,0,canvas.width,canvas.height);
                 const w=250, h=363;
                 const x=(canvas.width-w)/2, y=(canvas.height-h)/2;
@@ -303,7 +277,7 @@
             };
         }
 
-        // --- DRAWING & MANUAL UI ---
+        // --- DRAWING & UI ---
         function resize() { canvas.width = canvas.parentElement.offsetWidth; canvas.height = canvas.parentElement.offsetHeight; ctx.lineCap = 'round'; ctx.lineJoin = 'round'; ctx.lineWidth = 3; ctx.strokeStyle = '#252525'; }
         window.addEventListener('resize', resize); setTimeout(resize, 100);
         function getPos(e) { const r = canvas.getBoundingClientRect(); let x, y; if(e.changedTouches) { x=e.changedTouches[0].clientX; y=e.changedTouches[0].clientY; } else { x=e.clientX; y=e.clientY; } return {x: x-r.left, y: y-r.top}; }
