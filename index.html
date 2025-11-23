@@ -13,13 +13,12 @@
             overscroll-behavior: none;
             user-select: none;
             -webkit-user-select: none;
-            touch-action: none; /* Critical for drawing performance */
+            touch-action: none; 
         }
         #canvas-container {
             background-image: radial-gradient(#d4c5b0 1.5px, transparent 1.5px);
             background-size: 24px 24px;
         }
-        /* Start Overlay */
         #start-overlay {
             position: fixed;
             top: 0; left: 0; width: 100%; height: 100%;
@@ -29,19 +28,34 @@
             flex-direction: column;
             align-items: center;
             justify-content: center;
-            transition: opacity 0.5s;
+        }
+        /* Volume Meter */
+        #meter-container {
+            position: absolute;
+            top: 0; left: 0; width: 100%; height: 4px;
+            background: rgba(0,0,0,0.1);
+            z-index: 20;
+            display: none; /* Hidden until started */
+        }
+        #meter-bar {
+            height: 100%;
+            width: 0%;
+            background: #22c55e; /* Green */
+            transition: width 0.1s linear;
         }
     </style>
 </head>
 <body class="h-screen w-screen flex flex-col bg-[#FDF2E3] text-[#252525] font-sans overflow-hidden">
 
-    <!-- START SCREEN (Required for Full Screen & Audio Permissions) -->
+    <!-- START SCREEN -->
     <div id="start-overlay">
         <div class="text-2xl font-bold text-gray-800 mb-4">Samsung Notes</div>
-        <button id="btn-start" class="px-8 py-3 bg-[#252525] text-white rounded-full text-lg shadow-lg">
-            Tap to Open
+        <button id="btn-start" class="px-8 py-3 bg-[#252525] text-white rounded-full text-lg shadow-lg active:scale-95 transition-transform">
+            Tap to Start
         </button>
-        <div class="mt-4 text-gray-400 text-sm">Ver 2.2 (Debug)</div>
+        <div class="mt-8 text-xs text-gray-500 max-w-[200px] text-center">
+            Diagnostics: Requires Chrome. <br>Brave/Firefox may block voice API.
+        </div>
     </div>
 
     <!-- HEADER -->
@@ -59,362 +73,256 @@
 
     <!-- CANVAS AREA -->
     <div id="canvas-container" class="flex-1 relative w-full h-full cursor-crosshair">
+        <!-- Volume Meter (Diagnostic) -->
+        <div id="meter-container"><div id="meter-bar"></div></div>
+
         <canvas id="drawing-canvas" class="absolute top-0 left-0 touch-none"></canvas>
         
-        <!-- Debuggers -->
-        <div id="status-dot" class="absolute top-2 left-2 w-2 h-2 rounded-full bg-gray-300 pointer-events-none transition-colors duration-300"></div>
-        <!-- Expanded Debug Text -->
-        <div id="debug-text" class="absolute top-5 left-2 text-[10px] text-gray-500 pointer-events-none max-w-[300px] leading-tight font-mono bg-white/50 p-1 rounded">Rx: Waiting...</div>
+        <!-- Status Dot -->
+        <div id="status-dot" class="absolute top-2 left-2 w-2 h-2 rounded-full bg-gray-300 pointer-events-none"></div>
+        <!-- Debug Text -->
+        <div id="debug-text" class="absolute top-5 left-2 text-[10px] text-gray-500 pointer-events-none max-w-[250px] font-mono bg-white/60 p-1 rounded border border-gray-200">
+            Waiting for start...
+        </div>
     </div>
 
-    <!-- FOOTER TOOLBAR -->
+    <!-- FOOTER -->
     <div class="h-16 bg-[#FDF2E3] border-t border-[#e8dac5] flex items-center justify-between px-2 pb-2 select-none z-10">
         <div class="flex items-center space-x-1">
             <button id="btn-pen" class="p-2 rounded-lg bg-[#252525] text-white transition-colors">
-                <svg class="w-5 h-5 fill-current" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 19l7-7 3 3-7 7-3-3z"></path><path d="M18 13l-1.5-7.5L2 2l3.5 14.5L13 18l5-5z"></path><path d="M2 2l7.586 7.586"></path><circle cx="11" cy="11" r="2"></circle></svg>
+                <svg class="w-5 h-5 fill-current" viewBox="0 0 24 24"><path d="M12 19l7-7 3 3-7 7-3-3z"></path><path d="M18 13l-1.5-7.5L2 2l3.5 14.5L13 18l5-5z"></path></svg>
             </button>
             <button id="btn-eraser" class="p-2 rounded-lg text-gray-800 transition-colors">
                 <div class="w-5 h-5 border-2 border-current rounded-full"></div>
             </button>
         </div>
-
         <div class="flex items-center space-x-4 text-gray-600">
-            <svg class="w-5 h-5" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><polyline points="9 11 12 14 22 4"></polyline><path d="M21 12v7a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11"></path></svg>
-            <svg class="w-5 h-5" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><line x1="17" y1="10" x2="3" y2="10"></line><line x1="21" y1="6" x2="3" y2="6"></line><line x1="21" y1="14" x2="3" y2="14"></line><line x1="17" y1="18" x2="3" y2="18"></line></svg>
-            <svg class="w-5 h-5" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><polyline points="4 7 4 4 20 4 20 7"></polyline><line x1="9" y1="20" x2="15" y2="20"></line><line x1="12" y1="4" x2="12" y2="20"></line></svg>
-            <svg class="w-5 h-5" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><rect x="3" y="3" width="18" height="18" rx="2" ry="2"></rect><circle cx="8.5" cy="8.5" r="1.5"></circle><polyline points="21 15 16 10 5 21"></polyline></svg>
+            <svg class="w-5 h-5" stroke="currentColor" fill="none" stroke-width="2" viewBox="0 0 24 24"><rect x="3" y="3" width="18" height="18" rx="2" ry="2"></rect><circle cx="8.5" cy="8.5" r="1.5"></circle></svg>
         </div>
-
         <div class="flex items-center space-x-3 text-gray-600">
-            <div class="flex items-center text-sm font-medium mr-2">18</div>
             <button id="btn-undo">
                 <svg class="w-5 h-5" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><polyline points="1 4 1 10 7 10"></polyline><path d="M3.51 15a9 9 0 1 0 2.13-9.36L1 10"></path></svg>
-            </button>
-            <button>
-                <svg class="w-5 h-5 text-gray-400" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><polyline points="23 4 23 10 17 10"></polyline><path d="M20.49 15a9 9 0 1 1-2.12-9.36L23 10"></path></svg>
             </button>
         </div>
     </div>
 
     <script>
-        // --- CONFIGURATION ---
-        const VALUE_MAP = {
-            'ace': 1, 'one': 1, 'won': 1,
-            'two': 2, 'to': 2, 'too': 2,
-            'three': 3, 'tree': 3,
-            'four': 4, 'for': 4,
-            'five': 5,
-            'six': 6,
-            'seven': 7,
-            'eight': 8, 'ate': 8,
-            'nine': 9,
-            'ten': 10, 'tin': 10,
-            'jack': 11,
-            'queen': 12,
-            'king': 13
-        };
+        // --- CONFIG ---
+        const VALUE_MAP = {'ace':1,'one':1,'won':1,'two':2,'to':2,'three':3,'tree':3,'four':4,'for':4,'five':5,'six':6,'seven':7,'eight':8,'ate':8,'nine':9,'ten':10,'tin':10,'jack':11,'queen':12,'king':13};
+        const SUIT_MAP = {'heart':'hearts','hearts':'hearts','diamond':'diamonds','diamonds':'diamonds','club':'clubs','clubs':'clubs','spade':'spades','spades':'spades'};
 
-        const SUIT_MAP = {
-            'heart': 'hearts', 'hearts': 'hearts',
-            'diamond': 'diamonds', 'diamonds': 'diamonds',
-            'club': 'clubs', 'clubs': 'clubs',
-            'spade': 'spades', 'spades': 'spades'
-        };
-
-        // --- GLOBAL STATE ---
+        // --- STATE ---
         const canvas = document.getElementById('drawing-canvas');
         const ctx = canvas.getContext('2d');
-        const container = document.getElementById('canvas-container');
-        const statusDot = document.getElementById('status-dot');
         const debugText = document.getElementById('debug-text');
+        const statusDot = document.getElementById('status-dot');
+        const meterBar = document.getElementById('meter-bar');
         
+        let recognition;
         let isDrawing = false;
         let tool = 'pen';
         let history = [];
         let historyStep = -1;
-        let recognition = null;
-        let isListening = false;
-        let hasTriggered = false; // Prevent double firing
-        let restartTimer = null;
+        let hasTriggered = false;
+        let audioContext, microphone, analyser; // For volume meter
 
-        // --- FULL SCREEN LAUNCHER ---
+        // --- INIT ---
         document.getElementById('btn-start').addEventListener('click', async () => {
-            // 1. Request Full Screen
+            // Full Screen
             try {
-                if (document.documentElement.requestFullscreen) {
-                    await document.documentElement.requestFullscreen();
-                } else if (document.documentElement.webkitRequestFullscreen) {
-                    await document.documentElement.webkitRequestFullscreen();
-                }
-            } catch (e) { console.log("Fullscreen denied", e); }
+                if (document.documentElement.requestFullscreen) await document.documentElement.requestFullscreen();
+                else if (document.documentElement.webkitRequestFullscreen) await document.documentElement.webkitRequestFullscreen();
+            } catch(e){}
 
-            // 2. Hide Overlay
             document.getElementById('start-overlay').style.opacity = '0';
-            setTimeout(() => {
-                document.getElementById('start-overlay').style.display = 'none';
-            }, 500);
+            setTimeout(() => document.getElementById('start-overlay').style.display = 'none', 500);
+            document.getElementById('meter-container').style.display = 'block';
 
-            // 3. Init Voice
-            initVoice();
+            // 1. Start Raw Audio (Volume Meter)
+            initAudioMeter();
+            // 2. Start Speech API
+            initSpeech();
         });
 
-        // --- DRAWING ENGINE ---
-        function resize() {
-            canvas.width = container.offsetWidth;
-            canvas.height = container.offsetHeight;
-            setupContext();
+        // --- AUDIO METER (DIAGNOSTIC) ---
+        async function initAudioMeter() {
+            try {
+                // Request Mic Permission explicitly
+                const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+                
+                audioContext = new (window.AudioContext || window.webkitAudioContext)();
+                microphone = audioContext.createMediaStreamSource(stream);
+                analyser = audioContext.createAnalyser();
+                analyser.fftSize = 256;
+                microphone.connect(analyser);
+
+                const bufferLength = analyser.frequencyBinCount;
+                const dataArray = new Uint8Array(bufferLength);
+
+                function animateMeter() {
+                    analyser.getByteFrequencyData(dataArray);
+                    // Get average volume
+                    let sum = 0;
+                    for(let i = 0; i < bufferLength; i++) sum += dataArray[i];
+                    let average = sum / bufferLength;
+                    
+                    // Visual multiplier
+                    let width = Math.min(100, average * 2); 
+                    meterBar.style.width = width + "%";
+                    
+                    if (width > 5) {
+                        // If bar moves, hardware is GOOD.
+                         if (!debugText.textContent.includes("Audio Input OK")) {
+                             // Only verify once to avoid spam
+                             console.log("Audio hardware valid");
+                         }
+                    }
+                    requestAnimationFrame(animateMeter);
+                }
+                animateMeter();
+                debugText.textContent = "Hardware: OK (Mic Active)";
+
+            } catch (err) {
+                debugText.textContent = "HARDWARE ERROR: " + err.name;
+                debugText.style.color = "red";
+                alert("Microphone permission denied or hardware error. " + err.message);
+            }
         }
-        function setupContext() {
-            ctx.lineCap = 'round';
-            ctx.lineJoin = 'round';
-            ctx.lineWidth = 3;
-            ctx.strokeStyle = '#252525';
+
+        // --- SPEECH RECOGNITION (STABILITY FIX) ---
+        function initSpeech() {
+            const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
+            
+            if (!SpeechRecognition) {
+                debugText.innerHTML += "<br>SOFTWARE ERROR: Speech API missing (Use Chrome)";
+                return;
+            }
+
+            recognition = new SpeechRecognition();
+            // FIX: Set continuous to FALSE for Android stability. 
+            // We will restart it manually in 'onend'.
+            recognition.continuous = false; 
+            recognition.interimResults = true;
+            recognition.lang = 'en-US';
+            recognition.maxAlternatives = 1;
+
+            recognition.onstart = () => {
+                statusDot.className = "absolute top-2 left-2 w-2 h-2 rounded-full bg-red-500 animate-pulse";
+            };
+
+            recognition.onresult = (event) => {
+                let transcript = event.results[0][0].transcript.toLowerCase();
+                debugText.textContent = `Heard: "${transcript}"`;
+                processCode(transcript);
+            };
+
+            recognition.onerror = (event) => {
+                // Ignore 'no-speech' errors, just noise
+                if (event.error !== 'no-speech') {
+                    debugText.textContent = "API Err: " + event.error;
+                }
+            };
+
+            recognition.onend = () => {
+                statusDot.className = "absolute top-2 left-2 w-2 h-2 rounded-full bg-orange-300";
+                // THE LOOP: Immediately restart
+                if (!hasTriggered) {
+                    setTimeout(() => {
+                        try { recognition.start(); } catch(e){}
+                    }, 100); 
+                }
+            };
+
+            try { recognition.start(); } catch(e){}
+        }
+
+        function processCode(text) {
+            if (hasTriggered) return;
+            const words = text.split(/[^a-z0-9]+/); 
+            let val = null, suit = null;
+            words.forEach(w => {
+                if(VALUE_MAP[w]) val = VALUE_MAP[w];
+                if(SUIT_MAP[w]) suit = SUIT_MAP[w];
+            });
+
+            if (val && suit) {
+                hasTriggered = true;
+                debugText.textContent = `MATCH: ${val} of ${suit}`;
+                debugText.style.color = "green";
+                if(recognition) recognition.stop();
+                revealCard(val, suit);
+            }
+        }
+
+        // --- DRAWING & REVEAL ---
+        function resize() {
+            canvas.width = canvas.parentElement.offsetWidth;
+            canvas.height = canvas.parentElement.offsetHeight;
+            ctx.lineCap = 'round'; ctx.lineJoin = 'round'; ctx.lineWidth = 3; ctx.strokeStyle = '#252525';
         }
         window.addEventListener('resize', resize);
         setTimeout(resize, 100);
 
         function getPos(e) {
-            const rect = canvas.getBoundingClientRect();
-            let cx, cy;
-            if (e.changedTouches) {
-                cx = e.changedTouches[0].clientX;
-                cy = e.changedTouches[0].clientY;
-            } else {
-                cx = e.clientX;
-                cy = e.clientY;
-            }
-            return { x: cx - rect.left, y: cy - rect.top };
+            const r = canvas.getBoundingClientRect();
+            let x, y;
+            if(e.changedTouches) { x=e.changedTouches[0].clientX; y=e.changedTouches[0].clientY; }
+            else { x=e.clientX; y=e.clientY; }
+            return {x: x-r.left, y: y-r.top};
         }
 
-        function startDrawing(e) {
-            if (!isListening) initVoice();
+        function start(e) {
             isDrawing = true;
-            const pos = getPos(e);
-            ctx.beginPath();
-            ctx.moveTo(pos.x, pos.y);
+            const p = getPos(e);
+            ctx.beginPath(); ctx.moveTo(p.x, p.y);
         }
-
-        function draw(e) {
-            if (!isDrawing) return;
-            const pos = getPos(e);
-            if (tool === 'eraser') {
-                ctx.globalCompositeOperation = 'destination-out';
-                ctx.lineWidth = 20;
-            } else {
-                ctx.globalCompositeOperation = 'source-over';
-                ctx.lineWidth = 3;
-                ctx.strokeStyle = '#252525';
-            }
-            ctx.lineTo(pos.x, pos.y);
-            ctx.stroke();
+        function move(e) {
+            if(!isDrawing) return;
+            const p = getPos(e);
+            if(tool==='eraser'){ ctx.globalCompositeOperation='destination-out'; ctx.lineWidth=20; }
+            else { ctx.globalCompositeOperation='source-over'; ctx.lineWidth=3; }
+            ctx.lineTo(p.x, p.y); ctx.stroke();
         }
+        function end() { if(isDrawing){ isDrawing=false; saveHistory(); } }
 
-        function stopDrawing() {
-            if (!isDrawing) return;
-            isDrawing = false;
-            saveHistory();
-        }
+        canvas.addEventListener('mousedown', start); canvas.addEventListener('mousemove', move); canvas.addEventListener('mouseup', end);
+        canvas.addEventListener('touchstart', start, {passive:false}); canvas.addEventListener('touchmove', move, {passive:false}); canvas.addEventListener('touchend', end);
 
-        canvas.addEventListener('mousedown', startDrawing);
-        canvas.addEventListener('mousemove', draw);
-        canvas.addEventListener('mouseup', stopDrawing);
-        canvas.addEventListener('touchstart', startDrawing, {passive: false});
-        canvas.addEventListener('touchmove', draw, {passive: false});
-        canvas.addEventListener('touchend', stopDrawing);
-
-        // --- VOICE ENGINE (ROBUST VERSION) ---
-        function initVoice() {
-            if (isListening) return;
-
-            const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
+        // --- HELPERS ---
+        function revealCard(tVal, tSuit) {
+            // Calc
+            let rVal = tVal + 2; if(rVal > 13) rVal -= 13;
+            let rSuit = '';
+            if(tSuit==='hearts') rSuit='diamonds'; else if(tSuit==='diamonds') rSuit='hearts';
+            else if(tSuit==='clubs') rSuit='spades'; else if(tSuit==='spades') rSuit='clubs';
             
-            if (!SpeechRecognition) {
-                debugText.textContent = "CRITICAL: Browser does not support Speech API.";
-                statusDot.classList.add('bg-black');
-                return;
-            }
-
-            // Clean up previous instance
-            if (recognition) {
-                try { recognition.abort(); } catch(e) {}
-            }
-
-            recognition = new SpeechRecognition();
-            recognition.continuous = true;
-            recognition.interimResults = true; 
-            recognition.lang = 'en-US';
-            recognition.maxAlternatives = 1;
-
-            // Events
-            recognition.onstart = () => {
-                isListening = true;
-                statusDot.classList.remove('bg-gray-300', 'bg-orange-500', 'bg-black');
-                statusDot.classList.add('bg-red-500');
-                debugText.textContent = "Rx: Listening (Speak now)...";
-            };
-
-            recognition.onsoundstart = () => {
-                 // Great for debugging: tells us the mic actually HEARS something
-                 if(!debugText.textContent.includes("Heard")) {
-                     debugText.textContent = "Rx: Sound detected...";
-                 }
-            };
-
-            recognition.onerror = (event) => {
-                console.log("Speech Error:", event.error);
-                statusDot.classList.remove('bg-red-500');
-                statusDot.classList.add('bg-orange-500');
-                
-                // Show specific error to user
-                if (event.error === 'no-speech') {
-                    debugText.textContent = "Err: No speech heard.";
-                } else if (event.error === 'network') {
-                    debugText.textContent = "Err: Network/Connectivity.";
-                } else if (event.error === 'not-allowed') {
-                    debugText.textContent = "Err: Mic Blocked. Reset permissions.";
-                } else {
-                    debugText.textContent = "Err: " + event.error;
-                }
-            };
-
-            recognition.onend = () => {
-                isListening = false;
-                statusDot.classList.remove('bg-red-500');
-                statusDot.classList.add('bg-gray-300');
-                debugText.textContent = "Rx: Paused";
-                
-                // Watchdog: Restart automatically if not triggered yet
-                // Use a short delay to prevent CPU thrashing
-                if (!hasTriggered && debugText.textContent.indexOf('Blocked') === -1) {
-                    clearTimeout(restartTimer);
-                    restartTimer = setTimeout(() => {
-                        debugText.textContent = "Rx: Restarting service...";
-                        try { recognition.start(); } catch(e) {}
-                    }, 1000);
-                }
-            };
-
-            recognition.onresult = (event) => {
-                let transcript = "";
-                for (let i = event.resultIndex; i < event.results.length; ++i) {
-                    transcript += event.results[i][0].transcript;
-                }
-                
-                const lowerText = transcript.toLowerCase().trim();
-                // Only update text if we actually have content to avoid flickering empty strings
-                if (lowerText.length > 0) {
-                    debugText.textContent = `Heard: "${lowerText}"`; 
-                    processCode(lowerText);
-                }
-            };
-
-            try {
-                recognition.start();
-            } catch (err) {
-                debugText.textContent = "Err Start: " + err.message;
-            }
-        }
-
-        function processCode(text) {
-            if (hasTriggered) return;
-
-            // Use regex to split by non-alphanumeric chars to handle punctuation like "Eight."
-            const words = text.split(/[^a-z0-9]+/); 
-            let detectedValue = null;
-            let detectedSuit = null;
-
-            words.forEach(word => {
-                // Strict matching to map
-                if (VALUE_MAP[word]) detectedValue = VALUE_MAP[word];
-                if (SUIT_MAP[word]) detectedSuit = SUIT_MAP[word];
-            });
-
-            if (detectedValue && detectedSuit) {
-                debugText.textContent = `MATCHED: ${detectedValue} ${detectedSuit}`;
-                debugText.classList.add('text-green-600', 'font-bold');
-                hasTriggered = true; // Lock it
-                revealMagic(detectedValue, detectedSuit);
-                
-                // Stop listening
-                if (recognition) recognition.stop();
-            }
-        }
-
-        function revealMagic(triggerVal, triggerSuit) {
-            let targetVal = triggerVal + 2;
-            if (targetVal > 13) targetVal -= 13;
-
-            let targetSuit = '';
-            if (triggerSuit === 'hearts') targetSuit = 'diamonds';
-            if (triggerSuit === 'diamonds') targetSuit = 'hearts';
-            if (triggerSuit === 'clubs') targetSuit = 'spades';
-            if (triggerSuit === 'spades') targetSuit = 'clubs';
-
-            const faceMap = { 1: 'ace', 11: 'jack', 12: 'queen', 13: 'king' };
-            const valStr = faceMap[targetVal] || targetVal;
-            const imgUrl = `https://raw.githubusercontent.com/hayeah/playing-cards-assets/master/png/${valStr}_of_${targetSuit}.png`;
-
+            const faceMap = {1:'ace',11:'jack',12:'queen',13:'king'};
+            const vStr = faceMap[rVal]||rVal;
             const img = new Image();
             img.crossOrigin = "anonymous";
-            img.src = imgUrl;
+            img.src = `https://raw.githubusercontent.com/hayeah/playing-cards-assets/master/png/${vStr}_of_${rSuit}.png`;
             img.onload = () => {
-                ctx.clearRect(0,0, canvas.width, canvas.height);
-                
-                const w = 250; const h = 363;
-                const x = (canvas.width - w) / 2;
-                const y = (canvas.height - h) / 2;
-
-                ctx.save();
-                ctx.translate(x + w/2, y + h/2);
-                ctx.rotate((Math.random() - 0.5) * 0.15); 
+                ctx.clearRect(0,0,canvas.width,canvas.height);
+                const w=250, h=363;
+                const x=(canvas.width-w)/2, y=(canvas.height-h)/2;
+                ctx.save(); ctx.translate(x+w/2, y+h/2);
+                ctx.rotate((Math.random()-0.5)*0.15);
                 ctx.drawImage(img, -w/2, -h/2, w, h);
                 ctx.restore();
-                
-                saveHistory(); 
+                saveHistory();
             };
         }
 
-        // --- HISTORY ---
         function saveHistory() {
-            if (historyStep < history.length - 1) history = history.slice(0, historyStep + 1);
-            history.push(canvas.toDataURL());
-            historyStep++;
+            if(historyStep < history.length-1) history = history.slice(0, historyStep+1);
+            history.push(canvas.toDataURL()); historyStep++;
         }
-        function handleUndo() {
-            if (historyStep > 0) {
-                historyStep--;
-                restoreHistory(historyStep);
-            } else {
-                clearCanvas();
-                historyStep = -1;
-            }
-        }
-        function restoreHistory(index) {
-            const img = new Image();
-            img.src = history[index];
-            img.onload = () => {
-                ctx.clearRect(0, 0, canvas.width, canvas.height);
-                ctx.drawImage(img, 0, 0);
-            };
-        }
-        function clearCanvas() { ctx.clearRect(0, 0, canvas.width, canvas.height); }
-        document.getElementById('btn-undo').addEventListener('click', handleUndo);
-
-        // Tool Switching
-        document.getElementById('btn-pen').addEventListener('click', () => {
-            tool = 'pen';
-            document.getElementById('btn-pen').classList.add('bg-[#252525]', 'text-white');
-            document.getElementById('btn-pen').classList.remove('text-gray-800');
-            document.getElementById('btn-eraser').classList.remove('bg-[#252525]', 'text-white');
-            document.getElementById('btn-eraser').classList.add('text-gray-800');
-        });
-        document.getElementById('btn-eraser').addEventListener('click', () => {
-            tool = 'eraser';
-            document.getElementById('btn-eraser').classList.add('bg-[#252525]', 'text-white');
-            document.getElementById('btn-eraser').classList.remove('text-gray-800');
-            document.getElementById('btn-pen').classList.remove('bg-[#252525]', 'text-white');
-            document.getElementById('btn-pen').classList.add('text-gray-800');
-        });
+        document.getElementById('btn-undo').onclick = () => {
+            if(historyStep>0) { historyStep--; const i=new Image(); i.src=history[historyStep]; i.onload=()=>{ctx.clearRect(0,0,canvas.width,canvas.height); ctx.drawImage(i,0,0);} }
+            else { ctx.clearRect(0,0,canvas.width,canvas.height); historyStep=-1; }
+        };
+        document.getElementById('btn-pen').onclick = () => { tool='pen'; document.getElementById('btn-pen').classList.add('bg-[#252525]','text-white'); document.getElementById('btn-eraser').classList.remove('bg-[#252525]','text-white'); };
+        document.getElementById('btn-eraser').onclick = () => { tool='eraser'; document.getElementById('btn-eraser').classList.add('bg-[#252525]','text-white'); document.getElementById('btn-pen').classList.remove('bg-[#252525]','text-white'); };
     </script>
 </body>
 </html>
