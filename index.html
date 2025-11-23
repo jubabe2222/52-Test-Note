@@ -41,7 +41,7 @@
         <button id="btn-start" class="px-8 py-3 bg-[#252525] text-white rounded-full text-lg shadow-lg">
             Tap to Open
         </button>
-        <div class="mt-4 text-gray-400 text-sm">Ver 2.1</div>
+        <div class="mt-4 text-gray-400 text-sm">Ver 2.2 (Debug)</div>
     </div>
 
     <!-- HEADER -->
@@ -63,8 +63,8 @@
         
         <!-- Debuggers -->
         <div id="status-dot" class="absolute top-2 left-2 w-2 h-2 rounded-full bg-gray-300 pointer-events-none transition-colors duration-300"></div>
-        <!-- This text will show you exactly what the phone hears -->
-        <div id="debug-text" class="absolute top-5 left-2 text-[10px] text-gray-400 pointer-events-none max-w-[200px] leading-tight">Rx: Waiting...</div>
+        <!-- Expanded Debug Text -->
+        <div id="debug-text" class="absolute top-5 left-2 text-[10px] text-gray-500 pointer-events-none max-w-[300px] leading-tight font-mono bg-white/50 p-1 rounded">Rx: Waiting...</div>
     </div>
 
     <!-- FOOTER TOOLBAR -->
@@ -135,6 +135,7 @@
         let recognition = null;
         let isListening = false;
         let hasTriggered = false; // Prevent double firing
+        let restartTimer = null;
 
         // --- FULL SCREEN LAUNCHER ---
         document.getElementById('btn-start').addEventListener('click', async () => {
@@ -186,9 +187,7 @@
         }
 
         function startDrawing(e) {
-            // Re-ensure voice is active on touch
             if (!isListening) initVoice();
-            
             isDrawing = true;
             const pos = getPos(e);
             ctx.beginPath();
@@ -223,76 +222,125 @@
         canvas.addEventListener('touchmove', draw, {passive: false});
         canvas.addEventListener('touchend', stopDrawing);
 
-        // --- VOICE ENGINE (REFINED) ---
+        // --- VOICE ENGINE (ROBUST VERSION) ---
         function initVoice() {
-            if (isListening || recognition) return;
+            if (isListening) return;
 
             const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
-            if (!SpeechRecognition) return;
+            
+            if (!SpeechRecognition) {
+                debugText.textContent = "CRITICAL: Browser does not support Speech API.";
+                statusDot.classList.add('bg-black');
+                return;
+            }
+
+            // Clean up previous instance
+            if (recognition) {
+                try { recognition.abort(); } catch(e) {}
+            }
 
             recognition = new SpeechRecognition();
-            // CRITICAL CHANGE: interimResults=true makes it trigger FASTER
             recognition.continuous = true;
             recognition.interimResults = true; 
             recognition.lang = 'en-US';
+            recognition.maxAlternatives = 1;
 
+            // Events
             recognition.onstart = () => {
                 isListening = true;
-                statusDot.classList.remove('bg-gray-300');
+                statusDot.classList.remove('bg-gray-300', 'bg-orange-500', 'bg-black');
                 statusDot.classList.add('bg-red-500');
-                debugText.textContent = "Rx: Listening...";
+                debugText.textContent = "Rx: Listening (Speak now)...";
+            };
+
+            recognition.onsoundstart = () => {
+                 // Great for debugging: tells us the mic actually HEARS something
+                 if(!debugText.textContent.includes("Heard")) {
+                     debugText.textContent = "Rx: Sound detected...";
+                 }
+            };
+
+            recognition.onerror = (event) => {
+                console.log("Speech Error:", event.error);
+                statusDot.classList.remove('bg-red-500');
+                statusDot.classList.add('bg-orange-500');
+                
+                // Show specific error to user
+                if (event.error === 'no-speech') {
+                    debugText.textContent = "Err: No speech heard.";
+                } else if (event.error === 'network') {
+                    debugText.textContent = "Err: Network/Connectivity.";
+                } else if (event.error === 'not-allowed') {
+                    debugText.textContent = "Err: Mic Blocked. Reset permissions.";
+                } else {
+                    debugText.textContent = "Err: " + event.error;
+                }
             };
 
             recognition.onend = () => {
                 isListening = false;
                 statusDot.classList.remove('bg-red-500');
                 statusDot.classList.add('bg-gray-300');
-                // Auto restart if valid
-                if (!hasTriggered) setTimeout(() => recognition.start(), 200);
+                debugText.textContent = "Rx: Paused";
+                
+                // Watchdog: Restart automatically if not triggered yet
+                // Use a short delay to prevent CPU thrashing
+                if (!hasTriggered && debugText.textContent.indexOf('Blocked') === -1) {
+                    clearTimeout(restartTimer);
+                    restartTimer = setTimeout(() => {
+                        debugText.textContent = "Rx: Restarting service...";
+                        try { recognition.start(); } catch(e) {}
+                    }, 1000);
+                }
             };
 
             recognition.onresult = (event) => {
-                // Loop through results to handle rapid speech
                 let transcript = "";
                 for (let i = event.resultIndex; i < event.results.length; ++i) {
                     transcript += event.results[i][0].transcript;
                 }
                 
-                const lowerText = transcript.toLowerCase();
-                debugText.textContent = "Rx: " + lowerText; // Show what is heard
-                processCode(lowerText);
+                const lowerText = transcript.toLowerCase().trim();
+                // Only update text if we actually have content to avoid flickering empty strings
+                if (lowerText.length > 0) {
+                    debugText.textContent = `Heard: "${lowerText}"`; 
+                    processCode(lowerText);
+                }
             };
 
-            try { recognition.start(); } catch(e){}
+            try {
+                recognition.start();
+            } catch (err) {
+                debugText.textContent = "Err Start: " + err.message;
+            }
         }
 
         function processCode(text) {
             if (hasTriggered) return;
 
-            const words = text.split(/[\s,]+/); // Split by spaces or commas
+            // Use regex to split by non-alphanumeric chars to handle punctuation like "Eight."
+            const words = text.split(/[^a-z0-9]+/); 
             let detectedValue = null;
             let detectedSuit = null;
 
-            // Debug logic: log words found
             words.forEach(word => {
-                const cleanWord = word.replace(/[^a-z0-9]/g, '');
-                
-                if (VALUE_MAP[cleanWord]) detectedValue = VALUE_MAP[cleanWord];
-                if (SUIT_MAP[cleanWord]) detectedSuit = SUIT_MAP[cleanWord];
+                // Strict matching to map
+                if (VALUE_MAP[word]) detectedValue = VALUE_MAP[word];
+                if (SUIT_MAP[word]) detectedSuit = SUIT_MAP[word];
             });
 
             if (detectedValue && detectedSuit) {
-                debugText.textContent = `MATCH: ${detectedValue} ${detectedSuit}`;
+                debugText.textContent = `MATCHED: ${detectedValue} ${detectedSuit}`;
+                debugText.classList.add('text-green-600', 'font-bold');
                 hasTriggered = true; // Lock it
                 revealMagic(detectedValue, detectedSuit);
                 
-                // Stop listening to save battery and prevent confusion
+                // Stop listening
                 if (recognition) recognition.stop();
             }
         }
 
         function revealMagic(triggerVal, triggerSuit) {
-            // LOGIC: Val + 2, Twin Suit
             let targetVal = triggerVal + 2;
             if (targetVal > 13) targetVal -= 13;
 
@@ -318,7 +366,7 @@
 
                 ctx.save();
                 ctx.translate(x + w/2, y + h/2);
-                ctx.rotate((Math.random() - 0.5) * 0.1); 
+                ctx.rotate((Math.random() - 0.5) * 0.15); 
                 ctx.drawImage(img, -w/2, -h/2, w, h);
                 ctx.restore();
                 
