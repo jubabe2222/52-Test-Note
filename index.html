@@ -2,299 +2,244 @@
 <html lang="en">
 <head>
     <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-    <meta name="mobile-web-app-capable" content="yes">
-    <meta name="apple-mobile-web-app-capable" content="yes">
-    <title>Notes</title>
-    <script src="https://cdn.tailwindcss.com"></script>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
+    <title>Notes Test</title>
     <style>
-        body { overscroll-behavior: none; user-select: none; -webkit-user-select: none; touch-action: none; }
-        #canvas-container { background-image: radial-gradient(#d4c5b0 1.5px, transparent 1.5px); background-size: 24px 24px; }
-        #start-overlay { position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: #FDF2E3; z-index: 9999; display: flex; flex-direction: column; align-items: center; justify-content: center; }
-        #manual-modal { display: none; position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0,0,0,0.85); z-index: 10000; align-items: center; justify-content: center; overflow-y: auto; }
-        /* Hidden Meter */
-        #meter-container { position: absolute; top: 0; left: 0; width: 100%; height: 2px; background: transparent; z-index: 20; opacity: 0; pointer-events: none; }
-        #meter-bar { height: 100%; width: 0%; background: #22c55e; }
+        :root {
+            --bg-color: #ffffff;
+            --toolbar: #f1f3f4;
+            --text: #202124;
+        }
+
+        body {
+            margin: 0;
+            overflow: hidden;
+            display: flex;
+            flex-direction: column;
+            height: 100vh;
+            font-family: sans-serif;
+            background: var(--bg-color);
+            touch-action: none; /* Prevents scrolling while drawing */
+        }
+
+        /* HEADER */
+        .header {
+            height: 60px;
+            background: var(--toolbar);
+            display: flex;
+            align-items: center;
+            padding: 0 20px;
+            justify-content: space-between;
+            box-shadow: 0 1px 2px rgba(0,0,0,0.1);
+            z-index: 10;
+        }
+
+        .title {
+            font-size: 22px;
+            font-weight: bold;
+            color: var(--text);
+            padding: 10px;
+            transition: color 0.3s;
+        }
+
+        /* CANVAS AREA */
+        #canvas-wrapper {
+            flex: 1;
+            position: relative;
+            background: white;
+        }
+
+        canvas {
+            display: block;
+            width: 100%;
+            height: 100%;
+            cursor: crosshair;
+        }
+
+        /* THE CARD (Hidden by default) */
+        #reveal-card {
+            position: absolute;
+            top: 50%;
+            left: 50%;
+            transform: translate(-50%, -50%) rotate(-5deg) scale(0.8);
+            width: 200px;
+            opacity: 0;
+            transition: opacity 1.5s ease-in-out;
+            pointer-events: none; /* Allows drawing over the card */
+            filter: drop-shadow(5px 5px 10px rgba(0,0,0,0.3));
+        }
+
+        #reveal-card.show {
+            opacity: 1;
+        }
+
+        /* FOOTER */
+        .footer {
+            height: 60px;
+            background: var(--toolbar);
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            border-top: 1px solid #ddd;
+        }
+        
+        .btn {
+            padding: 10px 20px;
+            font-size: 20px;
+            color: #5f6368;
+            background: none;
+            border: none;
+        }
+
     </style>
 </head>
-<body class="h-screen w-screen flex flex-col bg-[#FDF2E3] text-[#252525] font-sans overflow-hidden">
+<body>
 
-    <!-- START SCREEN -->
-    <div id="start-overlay">
-        <div class="text-2xl font-bold text-gray-800 mb-4">Samsung Notes</div>
-        <button id="btn-start" class="px-8 py-3 bg-[#252525] text-white rounded-full text-lg shadow-lg active:scale-95 transition-transform">
-            Tap to Open
-        </button>
+    <div class="header">
+        <span>☰</span>
+        <!-- SECRET TRIGGER: The Title -->
+        <span class="title" id="secret-btn">Notes</span>
+        <span>⋮</span>
     </div>
 
-    <!-- MANUAL SELECTOR & DEBUG REPORT -->
-    <div id="manual-modal">
-        <div class="bg-white p-4 rounded-lg w-11/12 max-w-sm max-h-[90vh] overflow-y-auto">
-            <h2 class="text-lg font-bold mb-2">Manual Override</h2>
-            <div class="grid grid-cols-4 gap-2 mb-4">
-                <button onclick="manualVal(1)" class="p-2 bg-gray-200 rounded">A</button><button onclick="manualVal(2)" class="p-2 bg-gray-200 rounded">2</button><button onclick="manualVal(3)" class="p-2 bg-gray-200 rounded">3</button><button onclick="manualVal(4)" class="p-2 bg-gray-200 rounded">4</button>
-                <button onclick="manualVal(5)" class="p-2 bg-gray-200 rounded">5</button><button onclick="manualVal(6)" class="p-2 bg-gray-200 rounded">6</button><button onclick="manualVal(7)" class="p-2 bg-gray-200 rounded">7</button><button onclick="manualVal(8)" class="p-2 bg-gray-200 rounded">8</button>
-                <button onclick="manualVal(9)" class="p-2 bg-gray-200 rounded">9</button><button onclick="manualVal(10)" class="p-2 bg-gray-200 rounded">10</button><button onclick="manualVal(11)" class="p-2 bg-gray-200 rounded">J</button><button onclick="manualVal(12)" class="p-2 bg-gray-200 rounded">Q</button><button onclick="manualVal(13)" class="p-2 bg-gray-200 rounded">K</button>
-            </div>
-            <div class="grid grid-cols-4 gap-2 mb-6">
-                <button onclick="manualSuit('hearts')" class="p-2 bg-red-100 text-red-600 rounded">♥</button><button onclick="manualSuit('diamonds')" class="p-2 bg-red-100 text-red-600 rounded">♦</button><button onclick="manualSuit('clubs')" class="p-2 bg-gray-200 rounded">♣</button><button onclick="manualSuit('spades')" class="p-2 bg-gray-200 rounded">♠</button>
-            </div>
-            <hr class="border-gray-300 mb-4">
-            <h2 class="text-lg font-bold mb-2 text-red-600">System Log</h2>
-            <textarea id="log-output" class="w-full h-32 text-xs font-mono bg-gray-100 p-2 border rounded mb-2" readonly></textarea>
-            <button onclick="copyLog()" class="w-full py-2 bg-gray-800 text-white rounded mb-2">Copy Report</button>
-            <button onclick="closeManual()" class="w-full py-2 border rounded text-gray-500">Close</button>
-        </div>
+    <div id="canvas-wrapper">
+        <canvas id="paint-canvas"></canvas>
+        <!-- The 3 of Hearts is pre-loaded but invisible -->
+        <img id="reveal-card" src="https://deckofcardsapi.com/static/img/3H.png" alt="Card">
     </div>
 
-    <!-- HEADER -->
-    <div class="flex items-center justify-between px-4 py-3 bg-[#FDF2E3] z-10 select-none">
-        <div class="flex items-center space-x-4">
-            <svg class="w-6 h-6 text-gray-700" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path d="M15 18l-6-6 6-6"></path></svg>
-            <h1 id="app-title" class="text-xl font-medium text-gray-800 tracking-tight active:opacity-50">Title</h1>
-        </div>
-        <div class="flex items-center space-x-6 text-gray-700">
-            <svg class="w-6 h-6" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path d="M2 3h6a4 4 0 0 1 4 4v14a3 3 0 0 0-3-3H2z"></path><path d="M22 3h-6a4 4 0 0 0-4 4v14a3 3 0 0 1 3-3h7z"></path></svg>
-            <svg class="w-6 h-6" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><line x1="12" y1="5" x2="12" y2="19"></line><line x1="5" y1="12" x2="19" y2="12"></line></svg>
-            <svg class="w-6 h-6" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><circle cx="12" cy="12" r="1"></circle><circle cx="12" cy="5" r="1"></circle><circle cx="12" cy="19" r="1"></circle></svg>
-        </div>
-    </div>
-
-    <!-- CANVAS AREA -->
-    <div id="canvas-container" class="flex-1 relative w-full h-full cursor-crosshair">
-        <div id="meter-container"><div id="meter-bar"></div></div>
-        <canvas id="drawing-canvas" class="absolute top-0 left-0 touch-none"></canvas>
-        
-        <!-- VISIBLE FEEDBACK -->
-        <div id="status-dot" class="absolute top-2 left-2 w-2 h-2 rounded-full bg-gray-300 pointer-events-none"></div>
-        <div id="debug-text" class="absolute top-5 left-2 text-[10px] text-gray-400 pointer-events-none max-w-[200px] font-mono leading-tight">
-            Rx: Idle
-        </div>
-    </div>
-
-    <!-- FOOTER -->
-    <div class="h-16 bg-[#FDF2E3] border-t border-[#e8dac5] flex items-center justify-between px-2 pb-2 select-none z-10">
-        <div class="flex items-center space-x-1">
-            <button id="btn-pen" class="p-2 rounded-lg bg-[#252525] text-white transition-colors"><svg class="w-5 h-5 fill-current" viewBox="0 0 24 24"><path d="M12 19l7-7 3 3-7 7-3-3z"></path><path d="M18 13l-1.5-7.5L2 2l3.5 14.5L13 18l5-5z"></path></svg></button>
-            <button id="btn-eraser" class="p-2 rounded-lg text-gray-800 transition-colors"><div class="w-5 h-5 border-2 border-current rounded-full"></div></button>
-        </div>
-        <div class="flex items-center space-x-4 text-gray-600">
-            <svg class="w-5 h-5" stroke="currentColor" fill="none" stroke-width="2" viewBox="0 0 24 24"><rect x="3" y="3" width="18" height="18" rx="2" ry="2"></rect><circle cx="8.5" cy="8.5" r="1.5"></circle></svg>
-        </div>
-        <div class="flex items-center space-x-3 text-gray-600">
-            <button id="btn-undo"><svg class="w-5 h-5" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><polyline points="1 4 1 10 7 10"></polyline><path d="M3.51 15a9 9 0 1 0 2.13-9.36L1 10"></path></svg></button>
-        </div>
+    <div class="footer">
+        <button class="btn" onclick="clearPad()">🗑️</button>
     </div>
 
     <script>
-        // --- LOGGING ---
-        let systemLog = [];
-        function log(msg) {
-            const time = new Date().toISOString().split('T')[1].slice(0,8);
-            systemLog.push(`[${time}] ${msg}`);
-            if(systemLog.length > 50) systemLog.shift();
-            const logBox = document.getElementById('log-output');
-            if(logBox) logBox.value = systemLog.join('\n');
-        }
-        function copyLog() { document.getElementById('log-output').select(); document.execCommand('copy'); alert("Copied!"); }
-
-        // --- CONFIG ---
-        const VALUE_MAP = {'ace':1,'one':1,'won':1,'two':2,'to':2,'2':2,'three':3,'tree':3,'3':3,'four':4,'for':4,'4':4,'five':5,'5':5,'six':6,'6':6,'seven':7,'7':7,'eight':8,'ate':8,'8':8,'nine':9,'9':9,'ten':10,'tin':10,'10':10,'jack':11,'11':11,'queen':12,'12':12,'king':13,'13':13};
-        const SUIT_MAP = {'heart':'hearts','hearts':'hearts','diamond':'diamonds','diamonds':'diamonds','club':'clubs','clubs':'clubs','spade':'spades','spades':'spades'};
-
-        // --- STATE ---
-        const canvas = document.getElementById('drawing-canvas');
+        // --- 1. DRAWING LOGIC (To make it look like a real app) ---
+        const canvas = document.getElementById('paint-canvas');
         const ctx = canvas.getContext('2d');
-        const meterBar = document.getElementById('meter-bar');
-        const debugText = document.getElementById('debug-text');
-        const statusDot = document.getElementById('status-dot');
+        const wrapper = document.getElementById('canvas-wrapper');
+
+        // Resize canvas to full screen
+        function resize() {
+            canvas.width = wrapper.clientWidth;
+            canvas.height = wrapper.clientHeight;
+        }
+        window.onresize = resize;
+        resize();
+
+        let painting = false;
+
+        function startPosition(e) {
+            painting = true;
+            draw(e);
+        }
+        function finishedPosition() {
+            painting = false;
+            ctx.beginPath();
+        }
+        function draw(e) {
+            if (!painting) return;
+            e.preventDefault(); // Stop scrolling on phone
+            
+            const touch = e.touches ? e.touches[0] : e;
+            const rect = canvas.getBoundingClientRect();
+            const x = touch.clientX - rect.left;
+            const y = touch.clientY - rect.top;
+
+            ctx.lineWidth = 3;
+            ctx.lineCap = 'round';
+            ctx.strokeStyle = '#333';
+
+            ctx.lineTo(x, y);
+            ctx.stroke();
+            ctx.beginPath();
+            ctx.moveTo(x, y);
+        }
+
+        // Touch events for Android
+        canvas.addEventListener('touchstart', startPosition);
+        canvas.addEventListener('touchend', finishedPosition);
+        canvas.addEventListener('touchmove', draw);
+        
+        // Mouse events for Computer testing
+        canvas.addEventListener('mousedown', startPosition);
+        canvas.addEventListener('mouseup', finishedPosition);
+        canvas.addEventListener('mousemove', draw);
+
+        function clearPad() {
+            ctx.clearRect(0, 0, canvas.width, canvas.height);
+            document.getElementById('reveal-card').classList.remove('show');
+        }
+
+        // --- 2. VOICE LOGIC (The Trick) ---
+        const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
+        const titleBtn = document.getElementById('secret-btn');
+        const cardImage = document.getElementById('reveal-card');
         
         let recognition;
-        let isDrawing = false;
-        let tool = 'pen';
-        let history = [];
-        let historyStep = -1;
-        let hasTriggered = false;
-        let mVal = null;
-        let sidecarStream = null;
-        let handoffComplete = false;
+        let isListening = false;
 
-        // --- SOFT HANDOFF LOGIC (v11.0) ---
-        async function startRelay() {
-            log("Stage 1: Mic Warmup...");
-            debugText.textContent = "Rx: Warmup...";
-            try {
-                sidecarStream = await navigator.mediaDevices.getUserMedia({ audio: true });
-                const ac = new (window.AudioContext || window.webkitAudioContext)();
-                const mic = ac.createMediaStreamSource(sidecarStream);
-                const anal = ac.createAnalyser();
-                anal.fftSize = 256;
-                mic.connect(anal);
-                const data = new Uint8Array(anal.frequencyBinCount);
-                
-                let checkFrame = 0;
-                function checkHardware() {
-                    if (handoffComplete) return;
-                    anal.getByteFrequencyData(data);
-                    let sum = 0; for(let i=0; i<data.length; i++) sum += data[i];
-                    const avg = sum / data.length;
-                    
-                    meterBar.style.width = Math.min(100, avg * 3) + "%";
-                    
-                    if (avg > 5 && checkFrame > 10) {
-                        log("Audio Detected ("+avg.toFixed(0)+"). Handoff.");
-                        performHandoff();
-                        return; 
-                    }
-                    checkFrame++;
-                    if (checkFrame > 180) { // 3s Timeout
-                        log("Warmup Timeout. Forcing Handoff.");
-                        performHandoff();
-                        return;
-                    }
-                    requestAnimationFrame(checkHardware);
-                }
-                checkHardware();
-            } catch (err) {
-                log("Warmup Failed: " + err.message);
-                // Try speech anyway
-                initSpeech();
-            }
-        }
+        if (SpeechRecognition) {
+            recognition = new SpeechRecognition();
+            recognition.continuous = true; // Keep listening
+            recognition.interimResults = true; // Faster processing
+            recognition.lang = 'en-US';
 
-        function performHandoff() {
-            if(handoffComplete) return;
-            handoffComplete = true;
-
-            // v11: Don't kill Sidecar yet. Start Speech FIRST.
-            log("Starting Speech Engine...");
-            initSpeech();
-
-            // Kill Sidecar after Speech has hopefully grabbed the shared stream
-            setTimeout(() => {
-                log("Releasing Sidecar...");
-                if (sidecarStream) {
-                    sidecarStream.getTracks().forEach(track => track.stop());
-                    sidecarStream = null;
-                }
-            }, 1000); // 1s Overlap
-        }
-
-        document.getElementById('btn-start').addEventListener('click', async () => {
-            log("App Started");
-            try { if (document.documentElement.requestFullscreen) await document.documentElement.requestFullscreen(); } catch(e){}
-            document.getElementById('start-overlay').style.opacity = '0';
-            setTimeout(() => document.getElementById('start-overlay').style.display = 'none', 500);
-            startRelay();
-        });
-
-        // --- SPEECH ---
-        function initSpeech() {
-            const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
-            if (!SR) return log("API Missing");
-            if (recognition) { try { recognition.abort(); } catch(e){} }
-
-            recognition = new SR();
-            recognition.continuous = false;
-            recognition.interimResults = true;
-            recognition.lang = navigator.language || 'en-US';
-            
+            // VISUAL FEEDBACK: Title turns Blue when listening
             recognition.onstart = () => {
-                log("Speech Listening");
-                statusDot.className = "absolute top-2 left-2 w-2 h-2 rounded-full bg-red-500 animate-pulse";
-                debugText.textContent = "Rx: 👂 Listening...";
-            };
-            
-            recognition.onsoundstart = () => {
-                debugText.textContent = "Rx: 🔊 Sound...";
+                console.log("Mic Active");
+                titleBtn.style.color = "#1a73e8"; // Blue
+                isListening = true;
             };
 
             recognition.onend = () => {
-                statusDot.className = "absolute top-2 left-2 w-2 h-2 rounded-full bg-orange-300";
-                debugText.textContent = "Rx: Processing...";
-                if(!hasTriggered) {
-                    setTimeout(() => { try{recognition.start()}catch(e){} }, 200);
+                console.log("Mic Inactive");
+                titleBtn.style.color = "#202124"; // Black
+                
+                // If we want it to stay on, we auto-restart here
+                if(isListening) recognition.start();
+            };
+
+            recognition.onresult = (event) => {
+                const last = event.results.length - 1;
+                const command = event.results[last][0].transcript.toLowerCase();
+                
+                // DEBUG: Verify what the phone hears in the browser console
+                console.log("Heard:", command);
+
+                // --- THE TRIGGER ---
+                // We check if the phrase "ace of diamonds" is in the sentence
+                if (command.includes("ace of diamonds")) {
+                    revealTheCard();
                 }
             };
 
-            recognition.onresult = (e) => {
-                let t = "";
-                for (let i = e.resultIndex; i < e.results.length; ++i) t += e.results[i][0].transcript;
-                t = t.toLowerCase();
-                
-                // VISIBLE FEEDBACK
-                debugText.textContent = `Heard: "${t}"`;
-                
-                if(e.results[e.results.length-1].isFinal) log("Heard: " + t);
-                processCode(t);
-            };
-
-            try { recognition.start(); } catch(e){ log("Start Err: "+e.message); }
+        } else {
+            alert("This browser doesn't support voice. Please use Chrome.");
         }
 
-        function processCode(text) {
-            if (hasTriggered) return;
-            const words = text.split(/[^a-z0-9]+/); 
-            let val = null, suit = null;
-            words.forEach(w => {
-                if(VALUE_MAP[w]) val = VALUE_MAP[w];
-                if(SUIT_MAP[w]) suit = SUIT_MAP[w];
-            });
-            if (val && suit) {
-                log(`MATCH: ${val} of ${suit}`);
-                hasTriggered = true;
-                if(recognition) recognition.stop();
-                revealCard(val, suit);
+        // Toggle Listening when clicking the Title
+        titleBtn.addEventListener('click', () => {
+            if (!isListening) {
+                try {
+                    recognition.start();
+                    isListening = true;
+                } catch (e) { console.error(e); }
+            } else {
+                isListening = false;
+                recognition.stop();
             }
+        });
+
+        function revealTheCard() {
+            // Make the 3 of Hearts visible
+            cardImage.classList.add('show');
+            
+            // Stop listening so it doesn't trigger again accidentally
+            isListening = false;
+            recognition.stop();
         }
 
-        function revealCard(tVal, tSuit) {
-            let rVal = tVal + 2; if(rVal > 13) rVal -= 13;
-            let rSuit = '';
-            if(tSuit==='hearts') rSuit='diamonds'; else if(tSuit==='diamonds') rSuit='hearts';
-            else if(tSuit==='clubs') rSuit='spades'; else if(tSuit==='spades') rSuit='clubs';
-            drawFinalCard(rVal, rSuit);
-        }
-
-        function revealCardDirect(val, suit) { drawFinalCard(val, suit); }
-
-        function drawFinalCard(val, suit) {
-            log(`Revealing: ${val} of ${suit}`);
-            const faceMap = {1:'ace',11:'jack',12:'queen',13:'king'};
-            const vStr = faceMap[val]||val;
-            const img = new Image();
-            img.crossOrigin = "anonymous";
-            img.src = `https://raw.githubusercontent.com/hayeah/playing-cards-assets/master/png/${vStr}_of_${suit}.png`;
-            img.onload = () => {
-                ctx.clearRect(0,0,canvas.width,canvas.height);
-                const w=250, h=363;
-                const x=(canvas.width-w)/2, y=(canvas.height-h)/2;
-                ctx.save(); ctx.translate(x+w/2, y+h/2);
-                ctx.rotate((Math.random()-0.5)*0.15);
-                ctx.drawImage(img, -w/2, -h/2, w, h);
-                ctx.restore();
-                saveHistory();
-            };
-        }
-
-        // --- DRAWING & UI ---
-        function resize() { canvas.width = canvas.parentElement.offsetWidth; canvas.height = canvas.parentElement.offsetHeight; ctx.lineCap = 'round'; ctx.lineJoin = 'round'; ctx.lineWidth = 3; ctx.strokeStyle = '#252525'; }
-        window.addEventListener('resize', resize); setTimeout(resize, 100);
-        function getPos(e) { const r = canvas.getBoundingClientRect(); let x, y; if(e.changedTouches) { x=e.changedTouches[0].clientX; y=e.changedTouches[0].clientY; } else { x=e.clientX; y=e.clientY; } return {x: x-r.left, y: y-r.top}; }
-        function start(e) { isDrawing = true; const p=getPos(e); ctx.beginPath(); ctx.moveTo(p.x, p.y); }
-        function move(e) { if(!isDrawing) return; const p=getPos(e); if(tool==='eraser'){ ctx.globalCompositeOperation='destination-out'; ctx.lineWidth=20; } else { ctx.globalCompositeOperation='source-over'; ctx.lineWidth=3; } ctx.lineTo(p.x, p.y); ctx.stroke(); }
-        function end() { if(isDrawing){ isDrawing=false; saveHistory(); } }
-        canvas.addEventListener('mousedown', start); canvas.addEventListener('mousemove', move); canvas.addEventListener('mouseup', end); canvas.addEventListener('touchstart', start, {passive:false}); canvas.addEventListener('touchmove', move, {passive:false}); canvas.addEventListener('touchend', end);
-        function saveHistory() { if(historyStep < history.length-1) history = history.slice(0, historyStep+1); history.push(canvas.toDataURL()); historyStep++; }
-        document.getElementById('btn-undo').onclick = () => { if(historyStep>0) { historyStep--; const i=new Image(); i.src=history[historyStep]; i.onload=()=>{ctx.clearRect(0,0,canvas.width,canvas.height); ctx.drawImage(i,0,0);} } else { ctx.clearRect(0,0,canvas.width,canvas.height); historyStep=-1; } };
-        document.getElementById('btn-pen').onclick = () => { tool='pen'; document.getElementById('btn-pen').classList.add('bg-[#252525]','text-white'); document.getElementById('btn-eraser').classList.remove('bg-[#252525]','text-white'); };
-        document.getElementById('btn-eraser').onclick = () => { tool='eraser'; document.getElementById('btn-eraser').classList.add('bg-[#252525]','text-white'); document.getElementById('btn-pen').classList.remove('bg-[#252525]','text-white'); };
-        
-        let titleClicks = 0;
-        document.getElementById('app-title').addEventListener('click', () => { titleClicks++; if (titleClicks === 3) { document.getElementById('manual-modal').style.display = 'flex'; document.getElementById('log-output').value = systemLog.join('\n'); titleClicks = 0; } setTimeout(() => titleClicks = 0, 1000); });
-        function manualVal(v) { mVal = v; log("Manual Val: "+v); }
-        function manualSuit(s) { if (mVal) { document.getElementById('manual-modal').style.display = 'none'; revealCardDirect(mVal, s); } }
-        function closeManual() { document.getElementById('manual-modal').style.display = 'none'; }
     </script>
 </body>
 </html>
+
