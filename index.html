@@ -3,182 +3,169 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
-    <title>Notes (TF)</title>
-    <!-- Load TensorFlow.js -->
+    <title>AI Calibrator</title>
     <script src="https://cdn.jsdelivr.net/npm/@tensorflow/tfjs@3.18.0/dist/tf.min.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/@tensorflow-models/speech-commands@0.4.0/dist/speech-commands.min.js"></script>
 
     <style>
-        :root { --bg: #fff; --toolbar: #f1f3f4; }
-        body { margin: 0; overflow: hidden; display: flex; flex-direction: column; height: 100vh; font-family: sans-serif; background: var(--bg); touch-action: none; }
-
-        /* UI STYLING */
-        .header { height: 60px; background: var(--toolbar); display: flex; align-items: center; justify-content: space-between; padding: 0 20px; box-shadow: 0 1px 2px rgba(0,0,0,0.1); z-index: 10; }
-        .title { font-size: 22px; font-weight: bold; color: #202124; transition: color 0.3s; }
+        body { background: #111; color: #fff; font-family: monospace; padding: 20px; display: flex; flex-direction: column; align-items: center; }
         
-        /* Status Dot (To show when AI is ready) */
-        .status-dot { width: 10px; height: 10px; background-color: orange; border-radius: 50%; display: inline-block; margin-left: 5px; }
+        /* THE VISUALIZER BARS */
+        .bar-container { width: 100%; margin-bottom: 10px; }
+        .bar-label { display: flex; justify-content: space-between; font-size: 14px; margin-bottom: 2px; }
+        .bar-bg { width: 100%; height: 20px; background: #333; border-radius: 4px; overflow: hidden; }
+        .bar-fill { height: 100%; background: #555; width: 0%; transition: width 0.1s linear; }
+        
+        /* Highlight the target word */
+        .target .bar-fill { background: #1a73e8; } 
+        .target .bar-label { color: #8ab4f8; font-weight: bold; }
 
-        #canvas-wrapper { flex: 1; position: relative; background: white; }
-        canvas { display: block; width: 100%; height: 100%; }
-
-        /* THE CARD */
-        #reveal-card {
-            position: absolute;
-            top: 50%; left: 50%;
-            transform: translate(-50%, -50%) rotate(-5deg) scale(0.8);
-            width: 200px;
-            opacity: 0;
-            transition: opacity 0.5s ease-in-out;
-            pointer-events: none;
-            z-index: 5;
+        /* Trigger Indicator */
+        #trigger-status {
+            margin-top: 20px;
+            padding: 15px;
+            border: 2px solid #555;
+            width: 80%;
+            text-align: center;
+            font-size: 20px;
+            color: #555;
+            border-radius: 10px;
         }
-        #reveal-card.show { opacity: 1; }
-
-        /* Debug Text (Tiny at bottom) */
-        #debug {
-            position: absolute; bottom: 5px; left: 5px; 
-            font-size: 10px; color: #ccc; pointer-events: none;
+        #trigger-status.active {
+            border-color: #0f0;
+            color: #0f0;
+            background: #002200;
+            box-shadow: 0 0 15px #0f0;
         }
+
+        button { padding: 15px 30px; font-size: 18px; border-radius: 50px; background: #fff; color: #000; border: none; margin-bottom: 20px; margin-top: 20px; }
+        
+        #loading { color: orange; font-size: 18px; margin-bottom: 20px; }
     </style>
 </head>
 <body>
 
-    <div class="header">
-        <span>☰</span>
-        <div style="display:flex; align-items:center;">
-            <span class="title" id="trigger-btn">Notes</span>
-            <div class="status-dot" id="status"></div>
-        </div>
-        <span>⋮</span>
+    <h2 style="color: #888;">Voice Confidence Meter</h2>
+    <div id="loading">Loading AI Model... (Please Wait)</div>
+    
+    <button id="btn" disabled>Start Listening</button>
+
+    <!-- Visualizers for top words -->
+    <div class="bar-container target">
+        <div class="bar-label"><span>YES (Target)</span><span id="score-yes">0%</span></div>
+        <div class="bar-bg"><div class="bar-fill" id="bar-yes"></div></div>
+    </div>
+    
+    <div class="bar-container">
+        <div class="bar-label"><span>NO</span><span id="score-no">0%</span></div>
+        <div class="bar-bg"><div class="bar-fill" id="bar-no"></div></div>
     </div>
 
-    <div id="canvas-wrapper">
-        <canvas id="paint-canvas"></canvas>
-        <img id="reveal-card" src="https://deckofcardsapi.com/static/img/3H.png">
-        <div id="debug">Initializing AI...</div>
+    <div class="bar-container">
+        <div class="bar-label"><span>BACKGROUND NOISE</span><span id="score-bg">0%</span></div>
+        <div class="bar-bg"><div class="bar-fill" id="bar-bg"></div></div>
     </div>
+
+    <div id="trigger-status">CARD HIDDEN</div>
 
     <script>
-        // --- 1. SETUP TENSORFLOW ---
-        const statusDot = document.getElementById('status');
-        const debugText = document.getElementById('debug');
+        const btn = document.getElementById('btn');
+        const loading = document.getElementById('loading');
+        const triggerBox = document.getElementById('trigger-status');
         let recognizer;
-        let isModelLoaded = false;
         let isListening = false;
 
-        async function loadModel() {
+        // LOAD MODEL
+        async function app() {
             try {
-                // Load the default "Speech Commands" model (18 words)
                 recognizer = speechCommands.create('BROWSER_FFT');
                 await recognizer.ensureModelLoaded();
                 
-                // Model is Ready
-                isModelLoaded = true;
-                statusDot.style.backgroundColor = "#ccc"; // Grey = Ready (Idle)
-                debugText.innerText = "AI Ready. Tap Title.";
-                console.log("Model Loaded");
-            } catch (err) {
-                debugText.innerText = "Load Failed: " + err.message;
-                statusDot.style.backgroundColor = "red";
+                loading.innerText = "Model Ready.";
+                loading.style.color = "#888";
+                btn.disabled = false;
+                btn.style.backgroundColor = "#1a73e8"; // Blue
+                btn.style.color = "#fff";
+            } catch(e) {
+                loading.innerText = "Error: " + e.message;
+                loading.style.color = "red";
             }
         }
-        
-        // Start loading immediately
-        loadModel();
+        app();
 
-        // --- 2. LISTENING LOGIC ---
-        function toggleListening() {
-            if (!isModelLoaded) return;
-
+        // START/STOP
+        btn.addEventListener('click', () => {
             if (isListening) {
-                stopListening();
+                stop();
             } else {
-                startListening();
+                start();
             }
-        }
+        });
 
-        function startListening() {
-            if(isListening) return;
-            
-            // Visual Feedback: Blue = Listening
-            statusDot.style.backgroundColor = "#1a73e8"; 
-            document.getElementById('trigger-btn').style.color = "#1a73e8";
-            debugText.innerText = "Listening for 'YES'...";
+        function start() {
             isListening = true;
-
+            btn.innerText = "Stop Listening";
+            btn.style.backgroundColor = "#d93025"; // Red
+            
+            // WE LOWER THE THRESHOLD TO 0.00 so we see EVERYTHING
             recognizer.listen(result => {
-                // result.scores contains probabilities for all words
-                const words = recognizer.wordLabels(); // ['down', 'eight', 'five', 'four', 'go', 'left', 'nine', 'no', 'one', 'right', 'seven', 'six', 'stop', 'three', 'two', 'up', 'yes', 'zero', 'background_noise']
+                const words = recognizer.wordLabels();
+                const scores = result.scores; // Array of probabilities
                 
-                // Find the word with the highest score
-                const maxScore = Math.max(...result.scores);
-                const maxScoreIndex = result.scores.indexOf(maxScore);
-                const detectedWord = words[maxScoreIndex];
+                // Get Specific Scores
+                const yesIndex = words.indexOf('yes');
+                const noIndex = words.indexOf('no');
+                const bgIndex = words.indexOf('background_noise');
 
-                // Check Trigger
-                // We use a threshold of 0.85 (85% sure) to prevent accidental triggers
-                if (maxScore > 0.85) {
-                    console.log(`Heard: ${detectedWord} (${maxScore})`);
-                    debugText.innerText = `Heard: ${detectedWord}`;
+                const yesScore = scores[yesIndex];
+                const noScore = scores[noIndex];
+                const bgScore = scores[bgIndex];
 
-                    if (detectedWord === 'yes') {
-                        revealCard();
-                    }
+                // Update UI Bars
+                updateBar('yes', yesScore);
+                updateBar('no', noScore);
+                updateBar('bg', bgScore);
+
+                // CHECK TRIGGER (Set to 0.75 for this test)
+                if (yesScore > 0.75) {
+                    activateTrigger();
+                } else {
+                    deactivateTrigger();
                 }
 
             }, {
                 includeSpectrogram: false,
-                probabilityThreshold: 0.75,
-                invokeCallbackOnNoiseAndUnknown: true,
-                overlapFactor: 0.50 
+                probabilityThreshold: 0.00, // We want to see all data
+                overlapFactor: 0.50
             });
         }
 
-        function stopListening() {
-            if(!isListening) return;
-            recognizer.stopListening();
+        function stop() {
             isListening = false;
-            statusDot.style.backgroundColor = "#ccc";
-            document.getElementById('trigger-btn').style.color = "#202124";
-            debugText.innerText = "Paused";
+            recognizer.stopListening();
+            btn.innerText = "Start Listening";
+            btn.style.backgroundColor = "#1a73e8";
         }
 
-        function revealCard() {
-            document.getElementById('reveal-card').classList.add('show');
-            stopListening(); // Stop immediately after reveal
+        function updateBar(id, score) {
+            const percentage = (score * 100).toFixed(1) + "%";
+            document.getElementById(`score-${id}`).innerText = percentage;
+            document.getElementById(`bar-${id}`).style.width = percentage;
         }
 
-        // --- 3. UI INTERACTIONS ---
-        document.getElementById('trigger-btn').addEventListener('click', toggleListening);
-
-        // Canvas Drawing Logic (Standard)
-        const canvas = document.getElementById('paint-canvas');
-        const ctx = canvas.getContext('2d');
-        const wrapper = document.getElementById('canvas-wrapper');
-        
-        function resize() { canvas.width = wrapper.clientWidth; canvas.height = wrapper.clientHeight; }
-        window.onresize = resize;
-        setTimeout(resize, 100);
-
-        let painting = false;
-        function startDraw(e) { painting = true; draw(e); }
-        function endDraw() { painting = false; ctx.beginPath(); }
-        function draw(e) {
-            if (!painting) return;
-            e.preventDefault();
-            const t = e.touches ? e.touches[0] : e;
-            const r = canvas.getBoundingClientRect();
-            ctx.lineWidth = 3; ctx.lineCap = 'round'; ctx.strokeStyle = '#333';
-            ctx.lineTo(t.clientX - r.left, t.clientY - r.top);
-            ctx.stroke(); ctx.beginPath(); ctx.moveTo(t.clientX - r.left, t.clientY - r.top);
+        function activateTrigger() {
+            triggerBox.innerText = "CARD REVEALED!";
+            triggerBox.classList.add('active');
         }
-        canvas.addEventListener('touchstart', startDraw);
-        canvas.addEventListener('touchend', endDraw);
-        canvas.addEventListener('touchmove', draw);
-        canvas.addEventListener('mousedown', startDraw);
-        canvas.addEventListener('mouseup', endDraw);
-        canvas.addEventListener('mousemove', draw);
+
+        function deactivateTrigger() {
+            // Only reset if we aren't currently triggering
+            // In a real trick, we wouldn't reset, but for testing we do
+             setTimeout(() => {
+                 triggerBox.classList.remove('active');
+                 triggerBox.innerText = "CARD HIDDEN";
+             }, 1000);
+        }
 
     </script>
 </body>
