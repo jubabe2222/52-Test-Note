@@ -3,172 +3,264 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
-    <title>Google API Tester</title>
+    <title>Notes</title>
+    <!-- Load AI Engine -->
+    <script src="https://cdn.jsdelivr.net/npm/@tensorflow/tfjs@3.18.0/dist/tf.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/@tensorflow-models/speech-commands@0.4.0/dist/speech-commands.min.js"></script>
+
     <style>
-        body { background: #f0f2f5; font-family: sans-serif; padding: 20px; text-align: center; }
-        
-        /* THE VISUALIZERS */
-        .status-box {
+        /* Minimalist Google Keep / Apple Notes Vibe */
+        :root {
+            --bg-color: #ffffff;
+            --toolbar: #f8f9fa;
+            --text-idle: #202124;
+            --text-active: #5f6368; /* Subtle change when listening */
+        }
+
+        body {
+            margin: 0;
+            overflow: hidden;
+            display: flex;
+            flex-direction: column;
+            height: 100vh;
+            font-family: 'Roboto', sans-serif;
+            background: var(--bg-color);
+            touch-action: none;
+        }
+
+        /* HEADER */
+        .header {
+            height: 60px;
+            background: var(--toolbar);
+            display: flex;
+            align-items: center;
+            padding: 0 20px;
+            justify-content: space-between;
+            box-shadow: 0 0 4px rgba(0,0,0,0.1);
+            z-index: 10;
+        }
+
+        /* The Secret Switch */
+        .title {
+            font-size: 20px;
+            font-weight: 500;
+            color: var(--text-idle);
+            padding: 10px 20px;
+            transition: color 0.3s;
+            user-select: none;
+        }
+
+        .icon { font-size: 24px; color: #5f6368; }
+
+        /* CANVAS AREA */
+        #canvas-wrapper {
+            flex: 1;
+            position: relative;
             background: white;
-            padding: 20px;
-            border-radius: 12px;
-            box-shadow: 0 2px 5px rgba(0,0,0,0.1);
-            margin-bottom: 20px;
+            /* Optional: Dot grid pattern for realism */
+            background-image: radial-gradient(#e0e0e0 1px, transparent 1px);
+            background-size: 24px 24px;
         }
 
-        .signal-light {
-            width: 20px; height: 20px; border-radius: 50%;
-            background: #ccc; margin: 0 auto 10px auto;
-            transition: all 0.2s;
-        }
-        .signal-light.on { background: #34a853; box-shadow: 0 0 10px #34a853; } /* Green */
-        
-        #transcript-box {
-            font-size: 24px; font-weight: bold; color: #333; min-height: 40px;
-            border-bottom: 2px solid #eee; padding-bottom: 10px; margin-bottom: 10px;
-        }
-        
-        .confidence-meter {
-            height: 10px; background: #e0e0e0; border-radius: 5px; overflow: hidden;
-            width: 100%; max-width: 300px; margin: 0 auto;
-        }
-        .confidence-fill {
-            height: 100%; width: 0%; background: #1a73e8; transition: width 0.3s;
+        canvas {
+            display: block;
+            width: 100%;
+            height: 100%;
+            cursor: crosshair;
+            position: relative;
+            z-index: 2; /* Drawing sits ON TOP of the card */
         }
 
-        .log {
-            font-family: monospace; font-size: 12px; text-align: left;
-            background: #111; color: #0f0; padding: 10px;
-            height: 200px; overflow-y: scroll; border-radius: 8px;
+        /* THE CARD */
+        #reveal-card {
+            position: absolute;
+            top: 50%;
+            left: 50%;
+            transform: translate(-50%, -50%) rotate(-6deg) scale(0.85);
+            width: 220px;
+            opacity: 0;
+            transition: opacity 2s ease-in; /* Slow, spooky fade */
+            pointer-events: none;
+            z-index: 1; /* Sits BEHIND the drawings */
+            filter: contrast(1.1) sepia(0.2); /* Blends with paper */
         }
 
-        button {
-            padding: 15px 30px; font-size: 18px; background: #1a73e8; color: white;
-            border: none; border-radius: 50px; margin-bottom: 20px;
+        #reveal-card.show {
+            opacity: 0.95;
         }
+
+        /* Loading Indicator (Hidden after load) */
+        #loader {
+            position: absolute;
+            bottom: 20px;
+            left: 50%;
+            transform: translateX(-50%);
+            font-size: 12px;
+            color: #ccc;
+            pointer-events: none;
+        }
+
+        /* FOOTER */
+        .footer {
+            height: 50px;
+            border-top: 1px solid #eee;
+            background: #fff;
+            display: flex;
+            justify-content: space-around;
+            align-items: center;
+        }
+        .tool { opacity: 0.6; font-size: 20px; }
+        .tool.active { opacity: 1; color: #1a73e8; }
+
     </style>
 </head>
 <body>
 
-    <h2>Google API + Earbuds Test</h2>
-    
-    <div class="status-box">
-        <div class="signal-light" id="gate-light"></div>
-        <div style="font-size: 12px; color: #666; margin-bottom: 10px;">GATE KEEPER (VAD)</div>
-        
-        <div id="transcript-box">...</div>
-        
-        <div class="confidence-meter">
-            <div class="confidence-fill" id="conf-bar"></div>
-        </div>
-        <div id="conf-text" style="font-size:12px; margin-top:5px; color:#666;">Confidence: 0%</div>
+    <div class="header">
+        <span class="icon">☰</span>
+        <!-- SECRET BUTTON -->
+        <span class="title" id="secret-btn">Notes</span>
+        <span class="icon">⋮</span>
     </div>
 
-    <button id="btn">Start Mic</button>
-    
-    <div class="log" id="log"></div>
+    <div id="canvas-wrapper">
+        <canvas id="paint-canvas"></canvas>
+        <!-- CHANGE THE CARD URL HERE IF NEEDED -->
+        <img id="reveal-card" src="https://deckofcardsapi.com/static/img/3H.png">
+        <div id="loader">Loading Magic...</div>
+    </div>
+
+    <div class="footer">
+        <span class="tool active">✎</span>
+        <span class="tool">⌫</span>
+        <span class="tool" onclick="clearCanvas()">🗑️</span>
+    </div>
 
     <script>
-        const logBox = document.getElementById('log');
-        const transcriptBox = document.getElementById('transcript-box');
-        const confBar = document.getElementById('conf-bar');
-        const confText = document.getElementById('conf-text');
-        const gateLight = document.getElementById('gate-light');
-        const btn = document.getElementById('btn');
-
-        function log(msg) {
-            const div = document.createElement('div');
-            div.innerText = `> ${msg}`;
-            logBox.appendChild(div);
-            logBox.scrollTop = logBox.scrollHeight;
-        }
-
-        const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
-        let recognition;
+        // --- 1. MAGIC SETTINGS ---
+        const TRIGGER_WORD = 'yes'; 
+        const CONFIDENCE_THRESHOLD = 0.80; // High confidence because you have earbuds
+        
+        const titleBtn = document.getElementById('secret-btn');
+        const loader = document.getElementById('loader');
+        let recognizer;
+        let isAIReady = false;
         let isListening = false;
 
-        if (!SpeechRecognition) {
-            log("❌ Web Speech API NOT supported.");
-        } else {
-            recognition = new SpeechRecognition();
-            recognition.continuous = true;     // Keep listening
-            recognition.interimResults = true; // Show results as you speak
-            recognition.lang = 'en-US';
-
-            // --- THE GATEKEEPER EVENTS ---
-            
-            // 1. Hardware connection
-            recognition.onstart = () => {
-                log("Mic Hardware OPEN");
-                btn.innerText = "Stop Mic";
-                btn.style.backgroundColor = "#d93025";
-            };
-
-            // 2. Sound Detection (Any noise)
-            recognition.onsoundstart = () => {
-                // Note: Not all browsers fire this reliably
-                // log("Sound Detected..."); 
-            };
-
-            // 3. SPEECH Detection (The "Gate" opens)
-            recognition.onspeechstart = () => {
-                log("🗣️ VAD Triggered: Speech Detected!");
-                gateLight.classList.add('on'); // Green Light
-            };
-
-            recognition.onspeechend = () => {
-                log("Silence Detected (Gate Closing)");
-                gateLight.classList.remove('on');
-            };
-
-            recognition.onresult = (event) => {
-                const results = event.results;
-                const lastIdx = results.length - 1;
-                const result = results[lastIdx];
-                const text = result[0].transcript;
-                const isFinal = result.isFinal;
-                const confidence = result[0].confidence;
-
-                // Update Text
-                transcriptBox.innerText = `"${text}"`;
-                transcriptBox.style.color = isFinal ? "#000" : "#999"; // Grey = Guessing, Black = Final
-
-                // Update Confidence (Only relevant on Final results usually)
-                if (confidence) {
-                    const pct = (confidence * 100).toFixed(1) + "%";
-                    confBar.style.width = pct;
-                    confText.innerText = `Confidence: ${pct}`;
-                    
-                    if(isFinal) log(`✅ FINAL: "${text}" (${pct})`);
-                }
-            };
-
-            recognition.onerror = (event) => {
-                log(`⚠️ Error: ${event.error}`);
-                if (event.error === 'no-speech') {
-                    log("Did not hear anything. Check Mic.");
-                }
-                gateLight.classList.remove('on');
-            };
-
-            recognition.onend = () => {
-                log("Session Ended.");
-                isListening = false;
-                btn.innerText = "Start Mic";
-                btn.style.backgroundColor = "#1a73e8";
-                gateLight.classList.remove('on');
-            };
+        // --- 2. INITIALIZE AI ---
+        async function initAI() {
+            try {
+                recognizer = speechCommands.create('BROWSER_FFT');
+                await recognizer.ensureModelLoaded();
+                isAIReady = true;
+                loader.style.display = 'none';
+                console.log("Magic Ready");
+            } catch (e) {
+                loader.innerText = "Error: Refresh Page";
+                loader.style.color = "red";
+            }
         }
+        initAI();
 
-        btn.addEventListener('click', () => {
+        // --- 3. THE TOGGLE (Stealth Mode) ---
+        titleBtn.addEventListener('click', () => {
+            if (!isAIReady) return;
+
             if (isListening) {
-                recognition.stop();
+                stopListening();
             } else {
-                recognition.start();
-                isListening = true;
-                log("--- Starting Session ---");
+                startListening();
             }
         });
+
+        function startListening() {
+            if(isListening) return;
+            isListening = true;
+            
+            // Visual Cue for YOU (Dark Grey)
+            titleBtn.style.color = "#5f6368"; 
+
+            recognizer.listen(result => {
+                const words = recognizer.wordLabels();
+                const scores = result.scores;
+                
+                // Get score for "YES"
+                const wordIndex = words.indexOf(TRIGGER_WORD);
+                const score = scores[wordIndex];
+
+                if (score > CONFIDENCE_THRESHOLD) {
+                    reveal();
+                }
+
+            }, {
+                includeSpectrogram: false,
+                probabilityThreshold: 0.00,
+                invokeCallbackOnNoiseAndUnknown: true,
+                overlapFactor: 0.50 
+            });
+        }
+
+        function stopListening() {
+            if(isListening) {
+                recognizer.stopListening();
+                isListening = false;
+                // Visual Cue Reset (Black)
+                titleBtn.style.color = "#202124"; 
+            }
+        }
+
+        function reveal() {
+            document.getElementById('reveal-card').classList.add('show');
+            stopListening(); // Stop immediately so it doesn't trigger again
+        }
+
+        // --- 4. DRAWING CANVAS LOGIC ---
+        const canvas = document.getElementById('paint-canvas');
+        const ctx = canvas.getContext('2d');
+        const wrapper = document.getElementById('canvas-wrapper');
+
+        function resize() {
+            canvas.width = wrapper.clientWidth;
+            canvas.height = wrapper.clientHeight;
+        }
+        window.onresize = resize;
+        setTimeout(resize, 100);
+
+        // Drawing Event Handlers
+        let painting = false;
+        function startDraw(e) { painting = true; draw(e); }
+        function endDraw() { painting = false; ctx.beginPath(); }
+        function draw(e) {
+            if (!painting) return;
+            e.preventDefault(); // Important for phone scrolling
+            const touch = e.touches ? e.touches[0] : e;
+            const rect = canvas.getBoundingClientRect();
+            const x = touch.clientX - rect.left;
+            const y = touch.clientY - rect.top;
+
+            ctx.lineWidth = 2; // Thin pen style
+            ctx.lineCap = 'round';
+            ctx.strokeStyle = '#202124';
+
+            ctx.lineTo(x, y);
+            ctx.stroke();
+            ctx.beginPath();
+            ctx.moveTo(x, y);
+        }
+
+        canvas.addEventListener('touchstart', startDraw);
+        canvas.addEventListener('touchend', endDraw);
+        canvas.addEventListener('touchmove', draw);
+        // Mouse support for testing
+        canvas.addEventListener('mousedown', startDraw);
+        canvas.addEventListener('mouseup', endDraw);
+        canvas.addEventListener('mousemove', draw);
+
+        function clearCanvas() {
+            ctx.clearRect(0, 0, canvas.width, canvas.height);
+            // Hide card too if you want to reset
+            document.getElementById('reveal-card').classList.remove('show');
+        }
 
     </script>
 </body>
