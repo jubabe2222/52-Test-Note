@@ -3,256 +3,182 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
-    <title>Magic Debug Mode</title>
+    <title>Notes (TF)</title>
+    <!-- Load TensorFlow.js -->
+    <script src="https://cdn.jsdelivr.net/npm/@tensorflow/tfjs@3.18.0/dist/tf.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/@tensorflow-models/speech-commands@0.4.0/dist/speech-commands.min.js"></script>
+
     <style>
-        :root {
-            --bg-color: #ffffff;
-            --toolbar: #f1f3f4;
-            --text: #202124;
-        }
+        :root { --bg: #fff; --toolbar: #f1f3f4; }
+        body { margin: 0; overflow: hidden; display: flex; flex-direction: column; height: 100vh; font-family: sans-serif; background: var(--bg); touch-action: none; }
 
-        body {
-            margin: 0;
-            overflow: hidden;
-            display: flex;
-            flex-direction: column;
-            height: 100vh;
-            font-family: sans-serif;
-            background: var(--bg-color);
-            touch-action: none;
-        }
+        /* UI STYLING */
+        .header { height: 60px; background: var(--toolbar); display: flex; align-items: center; justify-content: space-between; padding: 0 20px; box-shadow: 0 1px 2px rgba(0,0,0,0.1); z-index: 10; }
+        .title { font-size: 22px; font-weight: bold; color: #202124; transition: color 0.3s; }
+        
+        /* Status Dot (To show when AI is ready) */
+        .status-dot { width: 10px; height: 10px; background-color: orange; border-radius: 50%; display: inline-block; margin-left: 5px; }
 
-        /* HEADER */
-        .header {
-            height: 60px;
-            background: var(--toolbar);
-            display: flex;
-            align-items: center;
-            padding: 0 20px;
-            justify-content: space-between;
-            box-shadow: 0 1px 2px rgba(0,0,0,0.1);
-            z-index: 10;
-        }
-
-        .title {
-            font-size: 22px;
-            font-weight: bold;
-            color: var(--text);
-            padding: 10px;
-            border: 1px solid transparent;
-        }
-
-        /* CANVAS AREA */
-        #canvas-wrapper {
-            flex: 1;
-            position: relative;
-            background: white;
-            overflow: hidden;
-        }
-
-        canvas {
-            display: block;
-            width: 100%;
-            height: 100%;
-            cursor: crosshair;
-            position: relative;
-            z-index: 1; /* Canvas is below the card */
-        }
+        #canvas-wrapper { flex: 1; position: relative; background: white; }
+        canvas { display: block; width: 100%; height: 100%; }
 
         /* THE CARD */
         #reveal-card {
             position: absolute;
-            top: 50%;
-            left: 50%;
+            top: 50%; left: 50%;
             transform: translate(-50%, -50%) rotate(-5deg) scale(0.8);
             width: 200px;
-            opacity: 0; 
+            opacity: 0;
             transition: opacity 0.5s ease-in-out;
             pointer-events: none;
-            z-index: 10; /* Card is ABOVE the canvas */
-            border: 2px solid red; /* Temporary Red Border to prove it exists */
+            z-index: 5;
         }
+        #reveal-card.show { opacity: 1; }
 
-        #reveal-card.show {
-            opacity: 1;
+        /* Debug Text (Tiny at bottom) */
+        #debug {
+            position: absolute; bottom: 5px; left: 5px; 
+            font-size: 10px; color: #ccc; pointer-events: none;
         }
-
-        /* DEBUG CONSOLE (The Log Tracker) */
-        #debug-console {
-            height: 150px;
-            background-color: #000;
-            color: #0f0;
-            font-family: monospace;
-            font-size: 12px;
-            overflow-y: scroll;
-            padding: 10px;
-            border-top: 2px solid #333;
-            z-index: 100;
-        }
-        
-        .log-line { margin-bottom: 4px; border-bottom: 1px solid #333; }
-        .log-error { color: #ff5555; }
-        .log-highlight { color: #ffff55; font-weight: bold; }
-
     </style>
 </head>
 <body>
 
     <div class="header">
         <span>☰</span>
-        <span class="title" id="secret-btn">Notes (Tap Me)</span>
+        <div style="display:flex; align-items:center;">
+            <span class="title" id="trigger-btn">Notes</span>
+            <div class="status-dot" id="status"></div>
+        </div>
         <span>⋮</span>
     </div>
 
     <div id="canvas-wrapper">
         <canvas id="paint-canvas"></canvas>
-        <!-- Added a red border to the image style so we can see if it loads but is transparent -->
-        <img id="reveal-card" src="https://deckofcardsapi.com/static/img/3H.png" alt="Card">
-    </div>
-
-    <!-- The Logger -->
-    <div id="debug-console" id="logger">
-        <div class="log-line">--- App Loaded ---</div>
+        <img id="reveal-card" src="https://deckofcardsapi.com/static/img/3H.png">
+        <div id="debug">Initializing AI...</div>
     </div>
 
     <script>
-        // --- LOGGING UTILITY ---
-        const debugConsole = document.getElementById('debug-console');
-        function log(msg, type = 'normal') {
-            const div = document.createElement('div');
-            div.className = 'log-line';
-            const time = new Date().toLocaleTimeString();
-            div.innerText = `[${time}] ${msg}`;
-            if(type === 'error') div.classList.add('log-error');
-            if(type === 'highlight') div.classList.add('log-highlight');
-            
-            debugConsole.appendChild(div);
-            debugConsole.scrollTop = debugConsole.scrollHeight; // Auto scroll
+        // --- 1. SETUP TENSORFLOW ---
+        const statusDot = document.getElementById('status');
+        const debugText = document.getElementById('debug');
+        let recognizer;
+        let isModelLoaded = false;
+        let isListening = false;
+
+        async function loadModel() {
+            try {
+                // Load the default "Speech Commands" model (18 words)
+                recognizer = speechCommands.create('BROWSER_FFT');
+                await recognizer.ensureModelLoaded();
+                
+                // Model is Ready
+                isModelLoaded = true;
+                statusDot.style.backgroundColor = "#ccc"; // Grey = Ready (Idle)
+                debugText.innerText = "AI Ready. Tap Title.";
+                console.log("Model Loaded");
+            } catch (err) {
+                debugText.innerText = "Load Failed: " + err.message;
+                statusDot.style.backgroundColor = "red";
+            }
+        }
+        
+        // Start loading immediately
+        loadModel();
+
+        // --- 2. LISTENING LOGIC ---
+        function toggleListening() {
+            if (!isModelLoaded) return;
+
+            if (isListening) {
+                stopListening();
+            } else {
+                startListening();
+            }
         }
 
-        // --- IMAGE LOADER CHECK ---
-        const cardImg = document.getElementById('reveal-card');
-        
-        log(`Attempting to load image: ${cardImg.src}`);
-        
-        cardImg.onload = () => {
-            log("✅ Image loaded successfully from URL!", "highlight");
-            log(`Image size: ${cardImg.naturalWidth}x${cardImg.naturalHeight}`);
-        };
-        
-        cardImg.onerror = () => {
-            log("❌ ERROR: Image failed to load. Check internet or URL.", "error");
-        };
+        function startListening() {
+            if(isListening) return;
+            
+            // Visual Feedback: Blue = Listening
+            statusDot.style.backgroundColor = "#1a73e8"; 
+            document.getElementById('trigger-btn').style.color = "#1a73e8";
+            debugText.innerText = "Listening for 'YES'...";
+            isListening = true;
 
-        // --- DRAWING LOGIC ---
+            recognizer.listen(result => {
+                // result.scores contains probabilities for all words
+                const words = recognizer.wordLabels(); // ['down', 'eight', 'five', 'four', 'go', 'left', 'nine', 'no', 'one', 'right', 'seven', 'six', 'stop', 'three', 'two', 'up', 'yes', 'zero', 'background_noise']
+                
+                // Find the word with the highest score
+                const maxScore = Math.max(...result.scores);
+                const maxScoreIndex = result.scores.indexOf(maxScore);
+                const detectedWord = words[maxScoreIndex];
+
+                // Check Trigger
+                // We use a threshold of 0.85 (85% sure) to prevent accidental triggers
+                if (maxScore > 0.85) {
+                    console.log(`Heard: ${detectedWord} (${maxScore})`);
+                    debugText.innerText = `Heard: ${detectedWord}`;
+
+                    if (detectedWord === 'yes') {
+                        revealCard();
+                    }
+                }
+
+            }, {
+                includeSpectrogram: false,
+                probabilityThreshold: 0.75,
+                invokeCallbackOnNoiseAndUnknown: true,
+                overlapFactor: 0.50 
+            });
+        }
+
+        function stopListening() {
+            if(!isListening) return;
+            recognizer.stopListening();
+            isListening = false;
+            statusDot.style.backgroundColor = "#ccc";
+            document.getElementById('trigger-btn').style.color = "#202124";
+            debugText.innerText = "Paused";
+        }
+
+        function revealCard() {
+            document.getElementById('reveal-card').classList.add('show');
+            stopListening(); // Stop immediately after reveal
+        }
+
+        // --- 3. UI INTERACTIONS ---
+        document.getElementById('trigger-btn').addEventListener('click', toggleListening);
+
+        // Canvas Drawing Logic (Standard)
         const canvas = document.getElementById('paint-canvas');
         const ctx = canvas.getContext('2d');
         const wrapper = document.getElementById('canvas-wrapper');
-
-        function resize() {
-            canvas.width = wrapper.clientWidth;
-            canvas.height = wrapper.clientHeight;
-            log(`Canvas Resized: ${canvas.width}x${canvas.height}`);
-        }
+        
+        function resize() { canvas.width = wrapper.clientWidth; canvas.height = wrapper.clientHeight; }
         window.onresize = resize;
-        setTimeout(resize, 100); // Ensure it runs after load
+        setTimeout(resize, 100);
 
         let painting = false;
-        function startPosition(e) { painting = true; draw(e); }
-        function finishedPosition() { painting = false; ctx.beginPath(); }
+        function startDraw(e) { painting = true; draw(e); }
+        function endDraw() { painting = false; ctx.beginPath(); }
         function draw(e) {
             if (!painting) return;
             e.preventDefault();
-            const touch = e.touches ? e.touches[0] : e;
-            const rect = canvas.getBoundingClientRect();
-            const x = touch.clientX - rect.left;
-            const y = touch.clientY - rect.top;
-            ctx.lineWidth = 3;
-            ctx.lineCap = 'round';
-            ctx.strokeStyle = '#333';
-            ctx.lineTo(x, y);
-            ctx.stroke();
-            ctx.beginPath();
-            ctx.moveTo(x, y);
+            const t = e.touches ? e.touches[0] : e;
+            const r = canvas.getBoundingClientRect();
+            ctx.lineWidth = 3; ctx.lineCap = 'round'; ctx.strokeStyle = '#333';
+            ctx.lineTo(t.clientX - r.left, t.clientY - r.top);
+            ctx.stroke(); ctx.beginPath(); ctx.moveTo(t.clientX - r.left, t.clientY - r.top);
         }
-        canvas.addEventListener('touchstart', startPosition);
-        canvas.addEventListener('touchend', finishedPosition);
+        canvas.addEventListener('touchstart', startDraw);
+        canvas.addEventListener('touchend', endDraw);
         canvas.addEventListener('touchmove', draw);
-
-        // --- VOICE LOGIC ---
-        const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
-        const titleBtn = document.getElementById('secret-btn');
-        let recognition;
-        let isListening = false;
-
-        if (SpeechRecognition) {
-            log("Browser supports Speech API.");
-            recognition = new SpeechRecognition();
-            recognition.continuous = true;
-            recognition.interimResults = true;
-            recognition.lang = 'en-US';
-
-            recognition.onstart = () => {
-                log("🎤 Microphone STARTED. Listening...", "highlight");
-                titleBtn.style.color = "blue";
-            };
-
-            recognition.onend = () => {
-                log("Microphone STOPPED.");
-                titleBtn.style.color = "black";
-                if(isListening) {
-                    log("Auto-restarting microphone...");
-                    try { recognition.start(); } catch(e) { log("Restart error: " + e.message); }
-                }
-            };
-
-            recognition.onerror = (event) => {
-                log("⚠️ Speech Error: " + event.error, "error");
-            };
-
-            recognition.onresult = (event) => {
-                const last = event.results.length - 1;
-                const transcript = event.results[last][0].transcript.toLowerCase().trim();
-                const confidence = event.results[last][0].confidence;
-                
-                // LOG WHAT IS HEARD
-                log(`Heard: "${transcript}" (Confidence: ${confidence.toFixed(2)})`);
-
-                // CHECK TRIGGER
-                // Note: I added "ace of diamond" (singular) just in case
-                if (transcript.includes("ace of diamonds") || transcript.includes("ace of diamond")) {
-                    log("🎯 KEYWORD MATCHED! Triggering reveal...", "highlight");
-                    revealTheCard();
-                }
-            };
-
-        } else {
-            log("❌ Browser does NOT support Speech API.", "error");
-        }
-
-        titleBtn.addEventListener('click', () => {
-            if (!isListening) {
-                log("User tapped Start.");
-                try {
-                    isListening = true;
-                    recognition.start();
-                } catch (e) { log("Start Exception: " + e.message, "error"); }
-            } else {
-                log("User tapped Stop.");
-                isListening = false;
-                recognition.stop();
-            }
-        });
-
-        function revealTheCard() {
-            log("Apply .show class to image.");
-            cardImg.classList.add('show');
-            log("Reveal function complete. Is image visible?");
-            
-            // Stop listening to prevent double triggers
-            isListening = false;
-            recognition.stop();
-        }
+        canvas.addEventListener('mousedown', startDraw);
+        canvas.addEventListener('mouseup', endDraw);
+        canvas.addEventListener('mousemove', draw);
 
     </script>
 </body>
