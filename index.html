@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
-    <title>Notes Test</title>
+    <title>Magic Debug Mode</title>
     <style>
         :root {
             --bg-color: #ffffff;
@@ -19,7 +19,7 @@
             height: 100vh;
             font-family: sans-serif;
             background: var(--bg-color);
-            touch-action: none; /* Prevents scrolling while drawing */
+            touch-action: none;
         }
 
         /* HEADER */
@@ -39,7 +39,7 @@
             font-weight: bold;
             color: var(--text);
             padding: 10px;
-            transition: color 0.3s;
+            border: 1px solid transparent;
         }
 
         /* CANVAS AREA */
@@ -47,6 +47,7 @@
             flex: 1;
             position: relative;
             background: white;
+            overflow: hidden;
         }
 
         canvas {
@@ -54,42 +55,44 @@
             width: 100%;
             height: 100%;
             cursor: crosshair;
+            position: relative;
+            z-index: 1; /* Canvas is below the card */
         }
 
-        /* THE CARD (Hidden by default) */
+        /* THE CARD */
         #reveal-card {
             position: absolute;
             top: 50%;
             left: 50%;
             transform: translate(-50%, -50%) rotate(-5deg) scale(0.8);
             width: 200px;
-            opacity: 0;
-            transition: opacity 1.5s ease-in-out;
-            pointer-events: none; /* Allows drawing over the card */
-            filter: drop-shadow(5px 5px 10px rgba(0,0,0,0.3));
+            opacity: 0; 
+            transition: opacity 0.5s ease-in-out;
+            pointer-events: none;
+            z-index: 10; /* Card is ABOVE the canvas */
+            border: 2px solid red; /* Temporary Red Border to prove it exists */
         }
 
         #reveal-card.show {
             opacity: 1;
         }
 
-        /* FOOTER */
-        .footer {
-            height: 60px;
-            background: var(--toolbar);
-            display: flex;
-            align-items: center;
-            justify-content: center;
-            border-top: 1px solid #ddd;
+        /* DEBUG CONSOLE (The Log Tracker) */
+        #debug-console {
+            height: 150px;
+            background-color: #000;
+            color: #0f0;
+            font-family: monospace;
+            font-size: 12px;
+            overflow-y: scroll;
+            padding: 10px;
+            border-top: 2px solid #333;
+            z-index: 100;
         }
         
-        .btn {
-            padding: 10px 20px;
-            font-size: 20px;
-            color: #5f6368;
-            background: none;
-            border: none;
-        }
+        .log-line { margin-bottom: 4px; border-bottom: 1px solid #333; }
+        .log-error { color: #ff5555; }
+        .log-highlight { color: #ffff55; font-weight: bold; }
 
     </style>
 </head>
@@ -97,144 +100,156 @@
 
     <div class="header">
         <span>☰</span>
-        <!-- SECRET TRIGGER: The Title -->
-        <span class="title" id="secret-btn">Notes</span>
+        <span class="title" id="secret-btn">Notes (Tap Me)</span>
         <span>⋮</span>
     </div>
 
     <div id="canvas-wrapper">
         <canvas id="paint-canvas"></canvas>
-        <!-- The 3 of Hearts is pre-loaded but invisible -->
+        <!-- Added a red border to the image style so we can see if it loads but is transparent -->
         <img id="reveal-card" src="https://deckofcardsapi.com/static/img/3H.png" alt="Card">
     </div>
 
-    <div class="footer">
-        <button class="btn" onclick="clearPad()">🗑️</button>
+    <!-- The Logger -->
+    <div id="debug-console" id="logger">
+        <div class="log-line">--- App Loaded ---</div>
     </div>
 
     <script>
-        // --- 1. DRAWING LOGIC (To make it look like a real app) ---
+        // --- LOGGING UTILITY ---
+        const debugConsole = document.getElementById('debug-console');
+        function log(msg, type = 'normal') {
+            const div = document.createElement('div');
+            div.className = 'log-line';
+            const time = new Date().toLocaleTimeString();
+            div.innerText = `[${time}] ${msg}`;
+            if(type === 'error') div.classList.add('log-error');
+            if(type === 'highlight') div.classList.add('log-highlight');
+            
+            debugConsole.appendChild(div);
+            debugConsole.scrollTop = debugConsole.scrollHeight; // Auto scroll
+        }
+
+        // --- IMAGE LOADER CHECK ---
+        const cardImg = document.getElementById('reveal-card');
+        
+        log(`Attempting to load image: ${cardImg.src}`);
+        
+        cardImg.onload = () => {
+            log("✅ Image loaded successfully from URL!", "highlight");
+            log(`Image size: ${cardImg.naturalWidth}x${cardImg.naturalHeight}`);
+        };
+        
+        cardImg.onerror = () => {
+            log("❌ ERROR: Image failed to load. Check internet or URL.", "error");
+        };
+
+        // --- DRAWING LOGIC ---
         const canvas = document.getElementById('paint-canvas');
         const ctx = canvas.getContext('2d');
         const wrapper = document.getElementById('canvas-wrapper');
 
-        // Resize canvas to full screen
         function resize() {
             canvas.width = wrapper.clientWidth;
             canvas.height = wrapper.clientHeight;
+            log(`Canvas Resized: ${canvas.width}x${canvas.height}`);
         }
         window.onresize = resize;
-        resize();
+        setTimeout(resize, 100); // Ensure it runs after load
 
         let painting = false;
-
-        function startPosition(e) {
-            painting = true;
-            draw(e);
-        }
-        function finishedPosition() {
-            painting = false;
-            ctx.beginPath();
-        }
+        function startPosition(e) { painting = true; draw(e); }
+        function finishedPosition() { painting = false; ctx.beginPath(); }
         function draw(e) {
             if (!painting) return;
-            e.preventDefault(); // Stop scrolling on phone
-            
+            e.preventDefault();
             const touch = e.touches ? e.touches[0] : e;
             const rect = canvas.getBoundingClientRect();
             const x = touch.clientX - rect.left;
             const y = touch.clientY - rect.top;
-
             ctx.lineWidth = 3;
             ctx.lineCap = 'round';
             ctx.strokeStyle = '#333';
-
             ctx.lineTo(x, y);
             ctx.stroke();
             ctx.beginPath();
             ctx.moveTo(x, y);
         }
-
-        // Touch events for Android
         canvas.addEventListener('touchstart', startPosition);
         canvas.addEventListener('touchend', finishedPosition);
         canvas.addEventListener('touchmove', draw);
-        
-        // Mouse events for Computer testing
-        canvas.addEventListener('mousedown', startPosition);
-        canvas.addEventListener('mouseup', finishedPosition);
-        canvas.addEventListener('mousemove', draw);
 
-        function clearPad() {
-            ctx.clearRect(0, 0, canvas.width, canvas.height);
-            document.getElementById('reveal-card').classList.remove('show');
-        }
-
-        // --- 2. VOICE LOGIC (The Trick) ---
+        // --- VOICE LOGIC ---
         const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
         const titleBtn = document.getElementById('secret-btn');
-        const cardImage = document.getElementById('reveal-card');
-        
         let recognition;
         let isListening = false;
 
         if (SpeechRecognition) {
+            log("Browser supports Speech API.");
             recognition = new SpeechRecognition();
-            recognition.continuous = true; // Keep listening
-            recognition.interimResults = true; // Faster processing
+            recognition.continuous = true;
+            recognition.interimResults = true;
             recognition.lang = 'en-US';
 
-            // VISUAL FEEDBACK: Title turns Blue when listening
             recognition.onstart = () => {
-                console.log("Mic Active");
-                titleBtn.style.color = "#1a73e8"; // Blue
-                isListening = true;
+                log("🎤 Microphone STARTED. Listening...", "highlight");
+                titleBtn.style.color = "blue";
             };
 
             recognition.onend = () => {
-                console.log("Mic Inactive");
-                titleBtn.style.color = "#202124"; // Black
-                
-                // If we want it to stay on, we auto-restart here
-                if(isListening) recognition.start();
+                log("Microphone STOPPED.");
+                titleBtn.style.color = "black";
+                if(isListening) {
+                    log("Auto-restarting microphone...");
+                    try { recognition.start(); } catch(e) { log("Restart error: " + e.message); }
+                }
+            };
+
+            recognition.onerror = (event) => {
+                log("⚠️ Speech Error: " + event.error, "error");
             };
 
             recognition.onresult = (event) => {
                 const last = event.results.length - 1;
-                const command = event.results[last][0].transcript.toLowerCase();
+                const transcript = event.results[last][0].transcript.toLowerCase().trim();
+                const confidence = event.results[last][0].confidence;
                 
-                // DEBUG: Verify what the phone hears in the browser console
-                console.log("Heard:", command);
+                // LOG WHAT IS HEARD
+                log(`Heard: "${transcript}" (Confidence: ${confidence.toFixed(2)})`);
 
-                // --- THE TRIGGER ---
-                // We check if the phrase "ace of diamonds" is in the sentence
-                if (command.includes("ace of diamonds")) {
+                // CHECK TRIGGER
+                // Note: I added "ace of diamond" (singular) just in case
+                if (transcript.includes("ace of diamonds") || transcript.includes("ace of diamond")) {
+                    log("🎯 KEYWORD MATCHED! Triggering reveal...", "highlight");
                     revealTheCard();
                 }
             };
 
         } else {
-            alert("This browser doesn't support voice. Please use Chrome.");
+            log("❌ Browser does NOT support Speech API.", "error");
         }
 
-        // Toggle Listening when clicking the Title
         titleBtn.addEventListener('click', () => {
             if (!isListening) {
+                log("User tapped Start.");
                 try {
-                    recognition.start();
                     isListening = true;
-                } catch (e) { console.error(e); }
+                    recognition.start();
+                } catch (e) { log("Start Exception: " + e.message, "error"); }
             } else {
+                log("User tapped Stop.");
                 isListening = false;
                 recognition.stop();
             }
         });
 
         function revealTheCard() {
-            // Make the 3 of Hearts visible
-            cardImage.classList.add('show');
+            log("Apply .show class to image.");
+            cardImg.classList.add('show');
+            log("Reveal function complete. Is image visible?");
             
-            // Stop listening so it doesn't trigger again accidentally
+            // Stop listening to prevent double triggers
             isListening = false;
             recognition.stop();
         }
