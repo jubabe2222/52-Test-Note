@@ -3,18 +3,20 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
-    <title>Notes</title>
-    <!-- Load AI Engine -->
+    <title>Samsung Notes</title>
+    <!-- Load AI -->
     <script src="https://cdn.jsdelivr.net/npm/@tensorflow/tfjs@3.18.0/dist/tf.min.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/@tensorflow-models/speech-commands@0.4.0/dist/speech-commands.min.js"></script>
+    <!-- Icons -->
+    <script src="https://unpkg.com/@phosphor-icons/web"></script>
 
     <style>
-        /* Minimalist Google Keep / Apple Notes Vibe */
+        /* SAMSUNG NOTES THEME */
         :root {
-            --bg-color: #ffffff;
-            --toolbar: #f8f9fa;
-            --text-idle: #202124;
-            --text-active: #5f6368; /* Subtle change when listening */
+            --bg-beige: #fcf6e9;
+            --dot-color: #eaddcf;
+            --toolbar-dark: #2f2f2f;
+            --accent-active: #5f5f5f;
         }
 
         body {
@@ -24,243 +26,312 @@
             flex-direction: column;
             height: 100vh;
             font-family: 'Roboto', sans-serif;
-            background: var(--bg-color);
+            background: var(--bg-beige);
             touch-action: none;
         }
 
         /* HEADER */
         .header {
-            height: 60px;
-            background: var(--toolbar);
+            height: 56px;
+            background: var(--bg-beige);
             display: flex;
             align-items: center;
-            padding: 0 20px;
+            padding: 0 16px;
             justify-content: space-between;
-            box-shadow: 0 0 4px rgba(0,0,0,0.1);
             z-index: 10;
         }
 
-        /* The Secret Switch */
-        .title {
+        .header-left { display: flex; align-items: center; gap: 16px; flex: 1; }
+        .header-right { display: flex; align-items: center; gap: 20px; }
+        .back-icon { font-size: 24px; color: #555; }
+        
+        /* SECRET TRIGGER & STATUS */
+        .note-title {
             font-size: 20px;
+            color: #aaa; /* Idle Grey */
             font-weight: 500;
-            color: var(--text-idle);
-            padding: 10px 20px;
-            transition: color 0.3s;
             user-select: none;
+            transition: color 0.3s;
         }
+        
+        .note-title.active { color: #000; } /* Live */
+        .note-title.armed { font-weight: 900; } /* Value Locked */
 
-        .icon { font-size: 24px; color: #5f6368; }
+        .header-icon { font-size: 22px; color: #333; }
 
-        /* CANVAS AREA */
+        /* CANVAS */
         #canvas-wrapper {
             flex: 1;
             position: relative;
-            background: white;
-            /* Optional: Dot grid pattern for realism */
-            background-image: radial-gradient(#e0e0e0 1px, transparent 1px);
-            background-size: 24px 24px;
+            background-image: radial-gradient(var(--dot-color) 2px, transparent 2px);
+            background-size: 28px 28px;
+            background-position: 14px 14px;
         }
 
-        canvas {
-            display: block;
-            width: 100%;
-            height: 100%;
-            cursor: crosshair;
-            position: relative;
-            z-index: 2; /* Drawing sits ON TOP of the card */
-        }
+        canvas { display: block; width: 100%; height: 100%; z-index: 2; position: relative; }
 
-        /* THE CARD */
+        /* CARD */
         #reveal-card {
             position: absolute;
-            top: 50%;
-            left: 50%;
-            transform: translate(-50%, -50%) rotate(-6deg) scale(0.85);
+            top: 40%; left: 50%;
+            transform: translate(-50%, -50%) rotate(-6deg) scale(0.9);
             width: 220px;
             opacity: 0;
-            transition: opacity 2s ease-in; /* Slow, spooky fade */
+            transition: opacity 2s ease-in-out;
             pointer-events: none;
-            z-index: 1; /* Sits BEHIND the drawings */
-            filter: contrast(1.1) sepia(0.2); /* Blends with paper */
+            z-index: 1;
+            filter: multiply(1);
         }
+        #reveal-card.show { opacity: 0.9; }
 
-        #reveal-card.show {
-            opacity: 0.95;
-        }
-
-        /* Loading Indicator (Hidden after load) */
-        #loader {
-            position: absolute;
-            bottom: 20px;
-            left: 50%;
-            transform: translateX(-50%);
-            font-size: 12px;
-            color: #ccc;
-            pointer-events: none;
-        }
-
-        /* FOOTER */
+        /* TOOLBAR */
         .footer {
-            height: 50px;
-            border-top: 1px solid #eee;
-            background: #fff;
+            height: 60px;
+            background: var(--toolbar-dark);
             display: flex;
-            justify-content: space-around;
             align-items: center;
+            justify-content: space-between;
+            padding: 0 10px;
         }
-        .tool { opacity: 0.6; font-size: 20px; }
-        .tool.active { opacity: 1; color: #1a73e8; }
+        .tool-group { display: flex; gap: 4px; align-items: center; }
+        .tool-btn {
+            width: 40px; height: 40px; display: flex; align-items: center; justify-content: center;
+            border-radius: 50%; color: #aaa; font-size: 22px; transition: all 0.2s;
+        }
+        .tool-btn.active { background-color: var(--accent-active); color: white; position: relative; }
+        .tool-btn.active::after {
+            content: ''; position: absolute; bottom: 8px; right: 8px; width: 6px; height: 6px;
+            background: #fff; border-radius: 50%; border: 1px solid #333;
+        }
 
+        .blinking-cursor {
+            position: absolute; top: 30px; left: 30px; width: 2px; height: 24px;
+            background-color: #d85252; animation: blink 1s step-end infinite; z-index: 0;
+        }
+        @keyframes blink { 50% { opacity: 0; } }
     </style>
 </head>
 <body>
 
     <div class="header">
-        <span class="icon">☰</span>
-        <!-- SECRET BUTTON -->
-        <span class="title" id="secret-btn">Notes</span>
-        <span class="icon">⋮</span>
+        <div class="header-left">
+            <i class="ph ph-caret-left back-icon"></i>
+            <div class="note-title" id="secret-btn">Title</div>
+        </div>
+        <div class="header-right">
+            <i class="ph ph-book-open header-icon"></i>
+            <i class="ph ph-plus header-icon"></i>
+            <i class="ph ph-dots-three-vertical header-icon"></i>
+        </div>
     </div>
 
     <div id="canvas-wrapper">
+        <div class="blinking-cursor" id="fake-cursor"></div>
         <canvas id="paint-canvas"></canvas>
-        <!-- CHANGE THE CARD URL HERE IF NEEDED -->
-        <img id="reveal-card" src="https://deckofcardsapi.com/static/img/3H.png">
-        <div id="loader">Loading Magic...</div>
+        <img id="reveal-card" src=""> 
     </div>
 
     <div class="footer">
-        <span class="tool active">✎</span>
-        <span class="tool">⌫</span>
-        <span class="tool" onclick="clearCanvas()">🗑️</span>
+        <div class="tool-group">
+            <div class="tool-btn active" id="tool-pen"><i class="ph ph-scribble-loop"></i></div>
+            <div class="tool-btn" id="tool-eraser"><i class="ph ph-eraser"></i></div>
+        </div>
+        <div class="tool-group" style="opacity: 0.4; pointer-events:none;">
+            <div class="tool-btn"><i class="ph ph-check-square"></i></div>
+            <div class="tool-btn"><i class="ph ph-text-t"></i></div>
+            <div class="tool-btn" style="font-size:14px; font-weight:bold;">18</div>
+        </div>
+        <div class="tool-group">
+            <div class="tool-btn" id="tool-undo"><i class="ph ph-arrow-u-up-left"></i></div>
+            <div class="tool-btn" style="opacity:0.4;"><i class="ph ph-arrow-u-up-right"></i></div>
+        </div>
     </div>
 
     <script>
-        // --- 1. MAGIC SETTINGS ---
-        const TRIGGER_WORD = 'yes'; 
-        const CONFIDENCE_THRESHOLD = 0.80; // High confidence because you have earbuds
+        // --- DIRECT MAPPING SYSTEM ---
         
-        const titleBtn = document.getElementById('secret-btn');
-        const loader = document.getElementById('loader');
-        let recognizer;
-        let isAIReady = false;
-        let isListening = false;
+        const VALUE_MAP = {
+            'one': 'A',   // Ace
+            'two': '2',
+            'three': '3',
+            'four': '4',
+            'five': '5',
+            'six': '6',
+            'seven': '7',
+            'eight': '8',
+            'nine': '9',
+            'zero': '0',  // 10
+            'off': 'J',   // Jack
+            'stop': 'Q',  // Queen
+            'go': 'K'     // King
+        };
 
-        // --- 2. INITIALIZE AI ---
-        async function initAI() {
+        const SUIT_MAP = {
+            'up': 'S',    // Spades
+            'down': 'H',  // Hearts
+            'left': 'C',  // Clubs
+            'right': 'D'  // Diamonds
+        };
+
+        const TIME_WINDOW = 10000; // 10 Seconds window
+
+        // --- MAGIC ENGINE ---
+        const secretBtn = document.getElementById('secret-btn');
+        let recognizer;
+        let isListening = false;
+        let storedValue = null; 
+        let comboTimer = null;
+
+        async function initMagic() {
             try {
                 recognizer = speechCommands.create('BROWSER_FFT');
                 await recognizer.ensureModelLoaded();
-                isAIReady = true;
-                loader.style.display = 'none';
-                console.log("Magic Ready");
-            } catch (e) {
-                loader.innerText = "Error: Refresh Page";
-                loader.style.color = "red";
-            }
+                secretBtn.style.color = "#888"; 
+            } catch(e) { console.error(e); }
         }
-        initAI();
+        initMagic();
 
-        // --- 3. THE TOGGLE (Stealth Mode) ---
-        titleBtn.addEventListener('click', () => {
-            if (!isAIReady) return;
-
-            if (isListening) {
-                stopListening();
-            } else {
-                startListening();
-            }
+        // --- TOGGLE ---
+        secretBtn.addEventListener('click', () => {
+            if(!recognizer) return;
+            if(isListening) stopListening();
+            else startListening();
         });
 
         function startListening() {
-            if(isListening) return;
             isListening = true;
+            storedValue = null;
+            secretBtn.classList.add('active'); // Turns Black
             
-            // Visual Cue for YOU (Dark Grey)
-            titleBtn.style.color = "#5f6368"; 
-
             recognizer.listen(result => {
                 const words = recognizer.wordLabels();
                 const scores = result.scores;
+                let maxScore = 0;
+                let word = "";
                 
-                // Get score for "YES"
-                const wordIndex = words.indexOf(TRIGGER_WORD);
-                const score = scores[wordIndex];
-
-                if (score > CONFIDENCE_THRESHOLD) {
-                    reveal();
+                for (let i = 0; i < scores.length; i++) {
+                    if (scores[i] > maxScore) {
+                        maxScore = scores[i];
+                        word = words[i];
+                    }
                 }
 
-            }, {
-                includeSpectrogram: false,
-                probabilityThreshold: 0.00,
-                invokeCallbackOnNoiseAndUnknown: true,
-                overlapFactor: 0.50 
-            });
+                if (maxScore > 0.65) {
+                    processWord(word);
+                }
+
+            }, { probabilityThreshold: 0.00, overlapFactor: 0.50 });
         }
 
         function stopListening() {
             if(isListening) {
                 recognizer.stopListening();
                 isListening = false;
-                // Visual Cue Reset (Black)
-                titleBtn.style.color = "#202124"; 
+                storedValue = null;
+                clearTimeout(comboTimer);
+                secretBtn.classList.remove('active');
+                secretBtn.classList.remove('armed');
             }
         }
 
-        function reveal() {
-            document.getElementById('reveal-card').classList.add('show');
-            stopListening(); // Stop immediately so it doesn't trigger again
+        function processWord(word) {
+            // 1. Check for VALUE
+            if (VALUE_MAP[word]) {
+                storedValue = VALUE_MAP[word];
+                
+                // Visual Confirmation (Bold Title)
+                secretBtn.classList.add('armed');
+
+                // Start Timer
+                clearTimeout(comboTimer);
+                comboTimer = setTimeout(() => {
+                    storedValue = null;
+                    secretBtn.classList.remove('armed');
+                }, TIME_WINDOW);
+            }
+            
+            // 2. Check for SUIT (Only if Value is stored)
+            else if (SUIT_MAP[word] && storedValue) {
+                const suitCode = SUIT_MAP[word];
+                const finalCard = storedValue + suitCode; 
+                
+                revealCard(finalCard);
+                
+                // Reset
+                storedValue = null;
+                clearTimeout(comboTimer);
+                secretBtn.classList.remove('armed');
+            }
         }
 
-        // --- 4. DRAWING CANVAS LOGIC ---
+        function revealCard(code) {
+            const img = document.getElementById('reveal-card');
+            img.src = `https://deckofcardsapi.com/static/img/${code}.png`;
+            
+            img.onload = () => {
+                img.classList.add('show');
+                document.getElementById('fake-cursor').style.display = 'none';
+            };
+            
+            setTimeout(stopListening, 2000);
+        }
+
+        // --- DRAWING ENGINE ---
         const canvas = document.getElementById('paint-canvas');
         const ctx = canvas.getContext('2d');
         const wrapper = document.getElementById('canvas-wrapper');
+        const fakeCursor = document.getElementById('fake-cursor');
+        let drawHistory = [];
+        let step = -1;
+        let currentTool = 'pen';
+        let painting = false;
 
         function resize() {
             canvas.width = wrapper.clientWidth;
             canvas.height = wrapper.clientHeight;
+            if(step >= 0) {
+                let img = new Image(); img.src = drawHistory[step];
+                img.onload = () => ctx.drawImage(img,0,0);
+            }
         }
-        window.onresize = resize;
-        setTimeout(resize, 100);
+        window.onresize = resize; setTimeout(resize, 100);
 
-        // Drawing Event Handlers
-        let painting = false;
-        function startDraw(e) { painting = true; draw(e); }
-        function endDraw() { painting = false; ctx.beginPath(); }
+        const penBtn = document.getElementById('tool-pen');
+        const eraserBtn = document.getElementById('tool-eraser');
+        const undoBtn = document.getElementById('tool-undo');
+        penBtn.addEventListener('click', () => setTool('pen'));
+        eraserBtn.addEventListener('click', () => setTool('eraser'));
+
+        function setTool(t) {
+            currentTool = t;
+            if(t==='pen'){ penBtn.classList.add('active'); eraserBtn.classList.remove('active'); }
+            else { eraserBtn.classList.add('active'); penBtn.classList.remove('active'); }
+        }
+
+        function startPosition(e) { painting = true; if(fakeCursor) fakeCursor.style.display='none'; draw(e); }
+        function endPosition() { if (!painting) return; painting = false; ctx.beginPath(); saveState(); }
         function draw(e) {
             if (!painting) return;
-            e.preventDefault(); // Important for phone scrolling
-            const touch = e.touches ? e.touches[0] : e;
-            const rect = canvas.getBoundingClientRect();
-            const x = touch.clientX - rect.left;
-            const y = touch.clientY - rect.top;
-
-            ctx.lineWidth = 2; // Thin pen style
-            ctx.lineCap = 'round';
-            ctx.strokeStyle = '#202124';
-
-            ctx.lineTo(x, y);
-            ctx.stroke();
-            ctx.beginPath();
-            ctx.moveTo(x, y);
+            e.preventDefault();
+            const t = e.touches ? e.touches[0] : e;
+            const r = canvas.getBoundingClientRect();
+            ctx.lineWidth = currentTool==='pen'?2.5:20; ctx.lineCap='round'; ctx.lineJoin='round';
+            if (currentTool==='eraser') ctx.globalCompositeOperation="destination-out";
+            else { ctx.globalCompositeOperation="source-over"; ctx.strokeStyle='#222'; }
+            ctx.lineTo(t.clientX-r.left, t.clientY-r.top); ctx.stroke(); ctx.beginPath(); ctx.moveTo(t.clientX-r.left, t.clientY-r.top);
         }
 
-        canvas.addEventListener('touchstart', startDraw);
-        canvas.addEventListener('touchend', endDraw);
-        canvas.addEventListener('touchmove', draw);
-        // Mouse support for testing
-        canvas.addEventListener('mousedown', startDraw);
-        canvas.addEventListener('mouseup', endDraw);
-        canvas.addEventListener('mousemove', draw);
+        canvas.addEventListener('touchstart', startPosition); canvas.addEventListener('touchend', endPosition); canvas.addEventListener('touchmove', draw);
+        canvas.addEventListener('mousedown', startPosition); canvas.addEventListener('mouseup', endPosition); canvas.addEventListener('mousemove', draw);
 
-        function clearCanvas() {
-            ctx.clearRect(0, 0, canvas.width, canvas.height);
-            // Hide card too if you want to reset
-            document.getElementById('reveal-card').classList.remove('show');
+        function saveState() {
+            step++; if (step < drawHistory.length) drawHistory.length = step;
+            drawHistory.push(canvas.toDataURL());
         }
+        undoBtn.addEventListener('click', () => {
+            if (step > 0) { step--; let i = new Image(); i.src = drawHistory[step]; i.onload=()=>{ctx.clearRect(0,0,canvas.width,canvas.height);ctx.globalCompositeOperation="source-over";ctx.drawImage(i,0,0);} }
+            else if (step === 0) { step = -1; ctx.clearRect(0,0,canvas.width,canvas.height); }
+        });
 
     </script>
 </body>
