@@ -2,337 +2,288 @@
 <html lang="en">
 <head>
     <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
-    <title>Samsung Notes</title>
-    <!-- Load AI -->
-    <script src="https://cdn.jsdelivr.net/npm/@tensorflow/tfjs@3.18.0/dist/tf.min.js"></script>
-    <script src="https://cdn.jsdelivr.net/npm/@tensorflow-models/speech-commands@0.4.0/dist/speech-commands.min.js"></script>
-    <!-- Icons -->
-    <script src="https://unpkg.com/@phosphor-icons/web"></script>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>Magic Deck</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    
+    <!-- Firebase SDKs -->
+    <script type="module">
+        import { initializeApp } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-app.js";
+        import { getAuth, signInAnonymously, onAuthStateChanged, signInWithCustomToken } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-auth.js";
+        import { getFirestore, doc, onSnapshot, setDoc, collection } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-firestore.js";
 
-    <style>
-        /* SAMSUNG NOTES THEME */
-        :root {
-            --bg-beige: #fcf6e9;
-            --dot-color: #eaddcf;
-            --toolbar-dark: #2f2f2f;
-            --accent-active: #5f5f5f;
+        // --- FIREBASE SETUP ---
+        // The environment provides these variables automatically.
+        const firebaseConfig = JSON.parse(__firebase_config);
+        const app = initializeApp(firebaseConfig);
+        const auth = getAuth(app);
+        const db = getFirestore(app);
+        const appId = typeof __app_id !== 'undefined' ? __app_id : 'default-app-id';
+
+        // Global state
+        let user = null;
+        let isReceiver = false;
+        let lastTimestamp = Date.now(); // Ignore old signals
+
+        // --- AUTH & ROUTING ---
+        async function initAuth() {
+            if (typeof __initial_auth_token !== 'undefined' && __initial_auth_token) {
+                await signInWithCustomToken(auth, __initial_auth_token);
+            } else {
+                await signInAnonymously(auth);
+            }
         }
 
-        body {
-            margin: 0;
-            overflow: hidden;
-            display: flex;
-            flex-direction: column;
-            height: 100vh;
-            font-family: 'Roboto', sans-serif;
-            background: var(--bg-beige);
-            touch-action: none;
-        }
-
-        /* HEADER */
-        .header {
-            height: 56px;
-            background: var(--bg-beige);
-            display: flex;
-            align-items: center;
-            padding: 0 16px;
-            justify-content: space-between;
-            z-index: 10;
-        }
-
-        .header-left { display: flex; align-items: center; gap: 16px; flex: 1; }
-        .header-right { display: flex; align-items: center; gap: 20px; }
-        .back-icon { font-size: 24px; color: #555; }
-        
-        /* SECRET TRIGGER & STATUS */
-        .note-title {
-            font-size: 20px;
-            color: #aaa; /* Idle Grey */
-            font-weight: 500;
-            user-select: none;
-            transition: color 0.3s;
-        }
-        
-        .note-title.active { color: #000; } /* Live */
-        .note-title.armed { font-weight: 900; } /* Value Locked */
-
-        .header-icon { font-size: 22px; color: #333; }
-
-        /* CANVAS */
-        #canvas-wrapper {
-            flex: 1;
-            position: relative;
-            background-image: radial-gradient(var(--dot-color) 2px, transparent 2px);
-            background-size: 28px 28px;
-            background-position: 14px 14px;
-        }
-
-        canvas { display: block; width: 100%; height: 100%; z-index: 2; position: relative; }
-
-        /* CARD */
-        #reveal-card {
-            position: absolute;
-            top: 40%; left: 50%;
-            transform: translate(-50%, -50%) rotate(-6deg) scale(0.9);
-            width: 220px;
-            opacity: 0;
-            transition: opacity 2s ease-in-out;
-            pointer-events: none;
-            z-index: 1;
-            filter: multiply(1);
-        }
-        #reveal-card.show { opacity: 0.9; }
-
-        /* TOOLBAR */
-        .footer {
-            height: 60px;
-            background: var(--toolbar-dark);
-            display: flex;
-            align-items: center;
-            justify-content: space-between;
-            padding: 0 10px;
-        }
-        .tool-group { display: flex; gap: 4px; align-items: center; }
-        .tool-btn {
-            width: 40px; height: 40px; display: flex; align-items: center; justify-content: center;
-            border-radius: 50%; color: #aaa; font-size: 22px; transition: all 0.2s;
-        }
-        .tool-btn.active { background-color: var(--accent-active); color: white; position: relative; }
-        .tool-btn.active::after {
-            content: ''; position: absolute; bottom: 8px; right: 8px; width: 6px; height: 6px;
-            background: #fff; border-radius: 50%; border: 1px solid #333;
-        }
-
-        .blinking-cursor {
-            position: absolute; top: 30px; left: 30px; width: 2px; height: 24px;
-            background-color: #d85252; animation: blink 1s step-end infinite; z-index: 0;
-        }
-        @keyframes blink { 50% { opacity: 0; } }
-    </style>
-</head>
-<body>
-
-    <div class="header">
-        <div class="header-left">
-            <i class="ph ph-caret-left back-icon"></i>
-            <div class="note-title" id="secret-btn">Title</div>
-        </div>
-        <div class="header-right">
-            <i class="ph ph-book-open header-icon"></i>
-            <i class="ph ph-plus header-icon"></i>
-            <i class="ph ph-dots-three-vertical header-icon"></i>
-        </div>
-    </div>
-
-    <div id="canvas-wrapper">
-        <div class="blinking-cursor" id="fake-cursor"></div>
-        <canvas id="paint-canvas"></canvas>
-        <img id="reveal-card" src=""> 
-    </div>
-
-    <div class="footer">
-        <div class="tool-group">
-            <div class="tool-btn active" id="tool-pen"><i class="ph ph-scribble-loop"></i></div>
-            <div class="tool-btn" id="tool-eraser"><i class="ph ph-eraser"></i></div>
-        </div>
-        <div class="tool-group" style="opacity: 0.4; pointer-events:none;">
-            <div class="tool-btn"><i class="ph ph-check-square"></i></div>
-            <div class="tool-btn"><i class="ph ph-text-t"></i></div>
-            <div class="tool-btn" style="font-size:14px; font-weight:bold;">18</div>
-        </div>
-        <div class="tool-group">
-            <div class="tool-btn" id="tool-undo"><i class="ph ph-arrow-u-up-left"></i></div>
-            <div class="tool-btn" style="opacity:0.4;"><i class="ph ph-arrow-u-up-right"></i></div>
-        </div>
-    </div>
-
-    <script>
-        // --- DIRECT MAPPING SYSTEM ---
-        
-        const VALUE_MAP = {
-            'one': 'A',   // Ace
-            'two': '2',
-            'three': '3',
-            'four': '4',
-            'five': '5',
-            'six': '6',
-            'seven': '7',
-            'eight': '8',
-            'nine': '9',
-            'zero': '0',  // 10
-            'off': 'J',   // Jack
-            'stop': 'Q',  // Queen
-            'go': 'K'     // King
-        };
-
-        const SUIT_MAP = {
-            'up': 'S',    // Spades
-            'down': 'H',  // Hearts
-            'left': 'C',  // Clubs
-            'right': 'D'  // Diamonds
-        };
-
-        const TIME_WINDOW = 10000; // 10 Seconds window
-
-        // --- MAGIC ENGINE ---
-        const secretBtn = document.getElementById('secret-btn');
-        let recognizer;
-        let isListening = false;
-        let storedValue = null; 
-        let comboTimer = null;
-
-        async function initMagic() {
-            try {
-                recognizer = speechCommands.create('BROWSER_FFT');
-                await recognizer.ensureModelLoaded();
-                secretBtn.style.color = "#888"; 
-            } catch(e) { console.error(e); }
-        }
-        initMagic();
-
-        // --- TOGGLE ---
-        secretBtn.addEventListener('click', () => {
-            if(!recognizer) return;
-            if(isListening) stopListening();
-            else startListening();
+        onAuthStateChanged(auth, (u) => {
+            if (u) {
+                user = u;
+                checkMode();
+            }
         });
 
-        function startListening() {
-            isListening = true;
-            storedValue = null;
-            secretBtn.classList.add('active'); // Turns Black
+        initAuth();
+
+        // --- MODES ---
+        function checkMode() {
+            const urlParams = new URLSearchParams(window.location.search);
+            if (urlParams.get('mode') === 'receiver') {
+                isReceiver = true;
+                initReceiver();
+            } else {
+                initSpectator();
+            }
+        }
+
+        // ==========================================
+        //  SPECTATOR MODE (THE DECK)
+        // ==========================================
+        function initSpectator() {
+            document.getElementById('spectator-view').classList.remove('hidden');
+            createDeck();
+            renderDeck();
+        }
+
+        // Logic to send data to Firebase
+        window.sendSelectionToCloud = async function(cardName) {
+            if (!user) return;
             
-            recognizer.listen(result => {
-                const words = recognizer.wordLabels();
-                const scores = result.scores;
-                let maxScore = 0;
-                let word = "";
+            // We use a public path so the receiver can read it easily
+            // In a real app, you might use a specific 'room code' logic
+            const docRef = doc(db, 'artifacts', appId, 'public', 'data', 'magic_card_selection');
+            
+            try {
+                await setDoc(docRef, {
+                    card: cardName,
+                    timestamp: Date.now()
+                });
+                console.log("Sent to cloud:", cardName);
                 
-                for (let i = 0; i < scores.length; i++) {
-                    if (scores[i] > maxScore) {
-                        maxScore = scores[i];
-                        word = words[i];
+                // Visual feedback (Green pulse)
+                const activeCard = document.querySelector('.snap-center.selected-pulse-target');
+                if(activeCard) {
+                    activeCard.classList.add('selected-pulse');
+                    setTimeout(() => activeCard.classList.remove('selected-pulse'), 1000);
+                }
+
+            } catch (e) {
+                console.error("Error sending selection:", e);
+            }
+        }
+
+        // ==========================================
+        //  RECEIVER MODE (YOUR EARBUDS)
+        // ==========================================
+        function initReceiver() {
+            document.getElementById('receiver-view').classList.remove('hidden');
+            
+            const statusEl = document.getElementById('receiver-status');
+            
+            // Listen to Firebase
+            const docRef = doc(db, 'artifacts', appId, 'public', 'data', 'magic_card_selection');
+            
+            onSnapshot(docRef, (docSnap) => {
+                if (docSnap.exists()) {
+                    const data = docSnap.data();
+                    
+                    // Only speak if this is a NEW selection (newer than when we loaded the page)
+                    if (data.timestamp > lastTimestamp) {
+                        lastTimestamp = data.timestamp;
+                        statusEl.innerText = `Received: ${data.card}`;
+                        statusEl.classList.add('text-green-500');
+                        speak(data.card);
+                        setTimeout(() => statusEl.classList.remove('text-green-500'), 2000);
                     }
                 }
+            }, (error) => {
+                console.error("Listen error:", error);
+            });
+        }
 
-                if (maxScore > 0.65) {
-                    processWord(word);
+        // --- AUDIO ENGINE (Receiver Only) ---
+        let synthesis = window.speechSynthesis;
+        
+        window.activateAudio = function() {
+            if (synthesis) {
+                synthesis.cancel();
+                let wakeUp = new SpeechSynthesisUtterance("Connected.");
+                synthesis.speak(wakeUp);
+                document.getElementById('receiver-btn').innerText = "Audio Active - Listening...";
+                document.getElementById('receiver-btn').classList.add('bg-green-700');
+            }
+        }
+
+        function speak(text) {
+            if (!synthesis) return;
+            synthesis.cancel();
+            const u = new SpeechSynthesisUtterance(text);
+            u.rate = 1.0; 
+            synthesis.speak(u);
+        }
+
+    </script>
+
+    <style>
+        .no-scrollbar::-webkit-scrollbar { display: none; }
+        .no-scrollbar { -ms-overflow-style: none; scrollbar-width: none; }
+        .selected-pulse { animation: weakPulse 1s ease-in-out; border-color: rgba(34, 197, 94, 0.5) !important; }
+        @keyframes weakPulse {
+            0% { transform: scale(1); box-shadow: 0 0 0 0 rgba(34, 197, 94, 0.4); }
+            50% { transform: scale(1.02); }
+            100% { transform: scale(1); box-shadow: 0 0 0 0 rgba(34, 197, 94, 0); }
+        }
+    </style>
+</head>
+<body class="bg-black h-screen w-screen overflow-hidden text-white font-sans select-none">
+
+    <!-- SPECTATOR VIEW -->
+    <div id="spectator-view" class="hidden w-full h-full relative flex flex-col items-center justify-center">
+        <!-- Start Overlay for Spectator -->
+        <div id="start-overlay" class="absolute inset-0 z-50 flex flex-col items-center justify-center bg-zinc-900 transition-opacity duration-500">
+            <div class="text-center p-6">
+                <div class="text-6xl mb-4">🂡</div>
+                <h1 class="text-2xl font-light tracking-widest uppercase mb-8 text-gray-400">Card Selector</h1>
+                <button onclick="startSpectatorApp()" class="px-8 py-3 border border-gray-600 rounded-full text-sm tracking-widest hover:bg-gray-800 transition-colors">
+                    OPEN DECK
+                </button>
+            </div>
+        </div>
+
+        <div id="deck-ui" class="opacity-0 transition-opacity duration-1000 w-full h-full flex flex-col items-center justify-center relative">
+            <div class="absolute inset-0 bg-[radial-gradient(circle_at_center,_var(--tw-gradient-stops))] from-zinc-800 to-black pointer-events-none"></div>
+            
+            <div id="deck-scroller" class="relative w-full h-3/4 flex overflow-x-auto snap-x snap-mandatory no-scrollbar items-center px-[calc(50vw-140px)]">
+                <!-- Cards injected here -->
+            </div>
+            
+            <div class="absolute bottom-8 text-gray-600 text-xs tracking-widest uppercase">Swipe to select</div>
+        </div>
+    </div>
+
+    <!-- RECEIVER VIEW (YOU) -->
+    <div id="receiver-view" class="hidden w-full h-full flex flex-col items-center justify-center bg-black">
+        <h1 class="text-zinc-500 text-xl mb-4 tracking-widest">RECEIVER MODE</h1>
+        <div id="receiver-status" class="text-4xl font-bold text-white mb-8 text-center h-12">Waiting...</div>
+        <button id="receiver-btn" onclick="activateAudio()" class="px-6 py-4 bg-zinc-800 rounded text-sm uppercase tracking-widest border border-zinc-700">
+            Tap to Activate Audio
+        </button>
+        <p class="mt-8 text-zinc-600 text-xs max-w-xs text-center">
+            Keep this screen open. When the spectator (on another device) picks a card, it will appear here and play via audio.
+        </p>
+    </div>
+
+    <!-- JS LOGIC FOR DECK -->
+    <script>
+        // DECK LOGIC (Pure JS, no Firebase needed here, handled by wrapper)
+        const suits = [
+            { name: 'Spades', symbol: '♠', color: 'text-black' },
+            { name: 'Hearts', symbol: '♥', color: 'text-red-600' },
+            { name: 'Clubs', symbol: '♣', color: 'text-black' },
+            { name: 'Diamonds', symbol: '♦', color: 'text-red-600' }
+        ];
+        const ranks = ['A', '2', '3', '4', '5', '6', '7', '8', '9', '10', 'J', 'Q', 'K'];
+        let deck = [];
+        let scrollTimeout = null;
+
+        function createDeck() {
+            for (let s of suits) {
+                for (let r of ranks) {
+                    deck.push({
+                        rank: r,
+                        suit: s.name,
+                        symbol: s.symbol,
+                        color: s.color,
+                        fullName: `${r === 'A'?'Ace':r==='K'?'King':r==='Q'?'Queen':r==='J'?'Jack':r} of ${s.name}`
+                    });
                 }
-
-            }, { probabilityThreshold: 0.00, overlapFactor: 0.50 });
-        }
-
-        function stopListening() {
-            if(isListening) {
-                recognizer.stopListening();
-                isListening = false;
-                storedValue = null;
-                clearTimeout(comboTimer);
-                secretBtn.classList.remove('active');
-                secretBtn.classList.remove('armed');
+            }
+            // Shuffle
+            for (let i = deck.length - 1; i > 0; i--) {
+                const j = Math.floor(Math.random() * (i + 1));
+                [deck[i], deck[j]] = [deck[j], deck[i]];
             }
         }
 
-        function processWord(word) {
-            // 1. Check for VALUE
-            if (VALUE_MAP[word]) {
-                storedValue = VALUE_MAP[word];
-                
-                // Visual Confirmation (Bold Title)
-                secretBtn.classList.add('armed');
+        function renderDeck() {
+            const scroller = document.getElementById('deck-scroller');
+            deck.forEach((card) => {
+                const cardEl = document.createElement('div');
+                cardEl.className = `card-element flex-shrink-0 w-[280px] h-[420px] bg-white rounded-2xl shadow-2xl snap-center mx-4 relative flex flex-col justify-between p-6 border-4 border-transparent transition-all duration-300`;
+                cardEl.innerHTML = `
+                    <div class="text-3xl font-bold ${card.color} flex flex-col items-center leading-none"><span>${card.rank}</span><span class="text-2xl">${card.symbol}</span></div>
+                    <div class="absolute inset-0 flex items-center justify-center"><span class="text-9xl ${card.color}">${card.symbol}</span></div>
+                    <div class="text-3xl font-bold ${card.color} flex flex-col items-center leading-none transform rotate-180"><span>${card.rank}</span><span class="text-2xl">${card.symbol}</span></div>
+                `;
+                scroller.appendChild(cardEl);
+            });
+        }
 
-                // Start Timer
-                clearTimeout(comboTimer);
-                comboTimer = setTimeout(() => {
-                    storedValue = null;
-                    secretBtn.classList.remove('armed');
-                }, TIME_WINDOW);
-            }
+        function startSpectatorApp() {
+            document.getElementById('start-overlay').style.opacity = '0';
+            setTimeout(() => document.getElementById('start-overlay').style.display = 'none', 500);
+            document.getElementById('deck-ui').classList.remove('opacity-0');
+        }
+
+        // SCROLL LISTENER
+        document.getElementById('deck-scroller').addEventListener('scroll', () => {
+            if (scrollTimeout) clearTimeout(scrollTimeout);
             
-            // 2. Check for SUIT (Only if Value is stored)
-            else if (SUIT_MAP[word] && storedValue) {
-                const suitCode = SUIT_MAP[word];
-                const finalCard = storedValue + suitCode; 
-                
-                revealCard(finalCard);
-                
-                // Reset
-                storedValue = null;
-                clearTimeout(comboTimer);
-                secretBtn.classList.remove('armed');
-            }
-        }
+            // Remove pulse classes from all cards while scrolling
+            document.querySelectorAll('.card-element').forEach(c => {
+                c.classList.remove('selected-pulse');
+                c.classList.remove('selected-pulse-target');
+            });
 
-        function revealCard(code) {
-            const img = document.getElementById('reveal-card');
-            img.src = `https://deckofcardsapi.com/static/img/${code}.png`;
-            
-            img.onload = () => {
-                img.classList.add('show');
-                document.getElementById('fake-cursor').style.display = 'none';
-            };
-            
-            setTimeout(stopListening, 2000);
-        }
-
-        // --- DRAWING ENGINE ---
-        const canvas = document.getElementById('paint-canvas');
-        const ctx = canvas.getContext('2d');
-        const wrapper = document.getElementById('canvas-wrapper');
-        const fakeCursor = document.getElementById('fake-cursor');
-        let drawHistory = [];
-        let step = -1;
-        let currentTool = 'pen';
-        let painting = false;
-
-        function resize() {
-            canvas.width = wrapper.clientWidth;
-            canvas.height = wrapper.clientHeight;
-            if(step >= 0) {
-                let img = new Image(); img.src = drawHistory[step];
-                img.onload = () => ctx.drawImage(img,0,0);
-            }
-        }
-        window.onresize = resize; setTimeout(resize, 100);
-
-        const penBtn = document.getElementById('tool-pen');
-        const eraserBtn = document.getElementById('tool-eraser');
-        const undoBtn = document.getElementById('tool-undo');
-        penBtn.addEventListener('click', () => setTool('pen'));
-        eraserBtn.addEventListener('click', () => setTool('eraser'));
-
-        function setTool(t) {
-            currentTool = t;
-            if(t==='pen'){ penBtn.classList.add('active'); eraserBtn.classList.remove('active'); }
-            else { eraserBtn.classList.add('active'); penBtn.classList.remove('active'); }
-        }
-
-        function startPosition(e) { painting = true; if(fakeCursor) fakeCursor.style.display='none'; draw(e); }
-        function endPosition() { if (!painting) return; painting = false; ctx.beginPath(); saveState(); }
-        function draw(e) {
-            if (!painting) return;
-            e.preventDefault();
-            const t = e.touches ? e.touches[0] : e;
-            const r = canvas.getBoundingClientRect();
-            ctx.lineWidth = currentTool==='pen'?2.5:20; ctx.lineCap='round'; ctx.lineJoin='round';
-            if (currentTool==='eraser') ctx.globalCompositeOperation="destination-out";
-            else { ctx.globalCompositeOperation="source-over"; ctx.strokeStyle='#222'; }
-            ctx.lineTo(t.clientX-r.left, t.clientY-r.top); ctx.stroke(); ctx.beginPath(); ctx.moveTo(t.clientX-r.left, t.clientY-r.top);
-        }
-
-        canvas.addEventListener('touchstart', startPosition); canvas.addEventListener('touchend', endPosition); canvas.addEventListener('touchmove', draw);
-        canvas.addEventListener('mousedown', startPosition); canvas.addEventListener('mouseup', endPosition); canvas.addEventListener('mousemove', draw);
-
-        function saveState() {
-            step++; if (step < drawHistory.length) drawHistory.length = step;
-            drawHistory.push(canvas.toDataURL());
-        }
-        undoBtn.addEventListener('click', () => {
-            if (step > 0) { step--; let i = new Image(); i.src = drawHistory[step]; i.onload=()=>{ctx.clearRect(0,0,canvas.width,canvas.height);ctx.globalCompositeOperation="source-over";ctx.drawImage(i,0,0);} }
-            else if (step === 0) { step = -1; ctx.clearRect(0,0,canvas.width,canvas.height); }
+            scrollTimeout = setTimeout(identifyAndSend, 3000); // 3 Seconds wait
         });
 
+        function identifyAndSend() {
+            const scroller = document.getElementById('deck-scroller');
+            const cards = scroller.children;
+            const scrollerCenter = scroller.getBoundingClientRect().width / 2;
+            let centerCardIndex = -1;
+            let minDistance = Infinity;
+
+            for (let i = 0; i < cards.length; i++) {
+                const rect = cards[i].getBoundingClientRect();
+                const cardCenter = rect.left + (rect.width / 2);
+                const distance = Math.abs(scrollerCenter - cardCenter);
+                if (distance < minDistance) {
+                    minDistance = distance;
+                    centerCardIndex = i;
+                }
+            }
+
+            if (centerCardIndex !== -1) {
+                const selectedCard = deck[centerCardIndex];
+                // Mark this card so the visual pulse works after data send
+                cards[centerCardIndex].classList.add('selected-pulse-target');
+                
+                // CALL THE CLOUD FUNCTION
+                if (window.sendSelectionToCloud) {
+                    window.sendSelectionToCloud(selectedCard.fullName);
+                }
+            }
+        }
     </script>
 </body>
 </html>
