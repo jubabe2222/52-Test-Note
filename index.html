@@ -13,7 +13,7 @@
         import { getFirestore, doc, onSnapshot, setDoc } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-firestore.js";
 
         // ==================================================================
-        // ✅ YOUR FIREBASE KEYS (Already Inserted)
+        // ✅ YOUR FIREBASE KEYS
         // ==================================================================
         
         const firebaseConfig = {
@@ -40,7 +40,6 @@
             
             signInAnonymously(auth).catch((err) => {
                 console.error("Auth Failed:", err);
-                alert("If this fails, ensure 'Anonymous Sign-in' is enabled in Firebase Console > Authentication.");
             });
             
             onAuthStateChanged(auth, (u) => {
@@ -63,7 +62,7 @@
             }
         }
 
-        // --- SPECTATOR MODE ---
+        // --- SPECTATOR MODE (SENDER) ---
         function initSpectator() {
             document.getElementById('start-overlay').style.display = 'flex';
         }
@@ -76,67 +75,164 @@
                     card: cardName,
                     timestamp: Date.now()
                 });
-            } catch (e) { 
-                console.error("Send Error:", e); 
-                if(e.code === 'permission-denied') alert("Database Locked: Enable Test Mode rules in Firebase Console.");
-            }
+            } catch (e) { console.error(e); }
         }
 
-        // --- RECEIVER MODE ---
+        // --- RECEIVER MODE (FAKE NOTES APP) ---
         function initReceiver() {
-            // Hide everything, show receiver black screen
+            // 1. Swap UI to Notes App
             document.body.innerHTML = '';
-            document.body.className = "bg-black h-screen w-screen overflow-hidden flex flex-col items-center pt-10";
+            document.body.className = "bg-white h-screen w-screen overflow-hidden text-black font-sans flex flex-col";
             
-            // Create Fake Notification Container
-            const notif = document.createElement('div');
-            notif.id = 'fake-notification';
-            notif.className = "fixed top-[-100px] w-[90%] max-w-sm bg-white/20 backdrop-blur-md border border-white/30 rounded-2xl p-4 flex items-center shadow-2xl transition-all duration-500 z-50";
-            notif.innerHTML = `
-                <div class="w-10 h-10 bg-green-500 rounded-full flex items-center justify-center text-xl mr-3">💬</div>
-                <div>
-                    <h3 class="text-xs font-bold text-gray-300 uppercase tracking-wide">Messages • Now</h3>
-                    <p id="notif-content" class="text-white font-semibold text-lg">New Message</p>
+            // 2. Build Notes Layout
+            const appHTML = `
+                <!-- Header -->
+                <div class="flex justify-between items-center p-4 border-b border-gray-200 bg-gray-50 z-10">
+                    <button class="text-blue-500 text-lg flex items-center">
+                        <span class="text-2xl mr-1">‹</span> Notes
+                    </button>
+                    <!-- THE REVEAL AREA -->
+                    <h1 id="note-title" class="font-semibold text-lg text-black transition-all duration-500">New Note</h1>
+                    <button class="text-blue-500 text-lg">Done</button>
+                </div>
+
+                <!-- Canvas Area -->
+                <div class="flex-grow relative bg-white cursor-crosshair touch-none" id="canvas-container">
+                    <canvas id="drawing-board" class="w-full h-full block touch-none"></canvas>
+                </div>
+
+                <!-- Toolbar -->
+                <div class="h-20 border-t border-gray-200 bg-gray-50 flex justify-around items-center px-6 pb-4">
+                    <button onclick="setTool('pen')" id="btn-pen" class="p-3 rounded-full bg-black text-white shadow-lg transform active:scale-95 transition-all">
+                        🖊️
+                    </button>
+                    <button onclick="setTool('eraser')" id="btn-eraser" class="p-3 rounded-full bg-white border border-gray-300 shadow-sm text-gray-600 transform active:scale-95 transition-all">
+                        🧹
+                    </button>
+                    <button onclick="clearCanvas()" class="p-3 text-red-500 text-sm font-bold uppercase tracking-widest">
+                        CLR
+                    </button>
                 </div>
             `;
-            document.body.appendChild(notif);
+            document.body.innerHTML = appHTML;
 
-            // Add a subtle "Connected" text
-            const status = document.createElement('div');
-            status.innerText = "Receiver Active";
-            status.className = "text-zinc-800 text-xs uppercase tracking-widest mt-20";
-            document.body.appendChild(status);
+            // 3. Initialize Drawing Logic
+            initCanvas();
 
-            // Listen to Firebase
+            // 4. Start Listening for Magic Signals
             const docRef = doc(db, 'magic_data', 'live_session');
             onSnapshot(docRef, (docSnap) => {
                 if (docSnap.exists()) {
                     const data = docSnap.data();
                     if (data.timestamp > lastTimestamp) {
                         lastTimestamp = data.timestamp;
-                        triggerNotification(data.card);
+                        // UPDATE THE TITLE (The Reveal)
+                        updateTitle(data.card);
                     }
                 }
             });
         }
 
-        function triggerNotification(text) {
-            const banner = document.getElementById('fake-notification');
-            const content = document.getElementById('notif-content');
-            
-            content.innerText = text;
-            
-            // Slide Down
-            banner.style.top = "20px";
-            
-            // Vibrate if allowed
-            if (navigator.vibrate) navigator.vibrate([200, 100, 200]);
+        // --- NOTES APP LOGIC ---
+        let ctx, canvas;
+        let isDrawing = false;
+        let currentTool = 'pen';
 
-            // Slide Up after 4 seconds
-            setTimeout(() => {
-                banner.style.top = "-100px";
-            }, 4000);
+        function initCanvas() {
+            canvas = document.getElementById('drawing-board');
+            const container = document.getElementById('canvas-container');
+            
+            // Set resolution
+            canvas.width = container.offsetWidth;
+            canvas.height = container.offsetHeight;
+            
+            ctx = canvas.getContext('2d');
+            ctx.lineCap = 'round';
+            ctx.lineJoin = 'round';
+            setTool('pen');
+
+            // Touch Events
+            canvas.addEventListener('touchstart', startDraw, { passive: false });
+            canvas.addEventListener('touchmove', draw, { passive: false });
+            canvas.addEventListener('touchend', stopDraw);
+            
+            // Mouse Events (for desktop testing)
+            canvas.addEventListener('mousedown', startDraw);
+            canvas.addEventListener('mousemove', draw);
+            canvas.addEventListener('mouseup', stopDraw);
         }
+
+        function startDraw(e) {
+            e.preventDefault();
+            isDrawing = true;
+            draw(e);
+        }
+
+        function draw(e) {
+            if (!isDrawing) return;
+            e.preventDefault();
+
+            const rect = canvas.getBoundingClientRect();
+            let x, y;
+            
+            if(e.touches) {
+                x = e.touches[0].clientX - rect.left;
+                y = e.touches[0].clientY - rect.top;
+            } else {
+                x = e.clientX - rect.left;
+                y = e.clientY - rect.top;
+            }
+
+            ctx.lineTo(x, y);
+            ctx.stroke();
+            ctx.beginPath();
+            ctx.moveTo(x, y);
+        }
+
+        function stopDraw() {
+            isDrawing = false;
+            ctx.beginPath(); // Reset path so next line is separate
+        }
+
+        window.setTool = function(tool) {
+            currentTool = tool;
+            if (tool === 'pen') {
+                ctx.globalCompositeOperation = 'source-over';
+                ctx.strokeStyle = '#000000';
+                ctx.lineWidth = 3;
+                document.getElementById('btn-pen').classList.add('bg-black', 'text-white');
+                document.getElementById('btn-pen').classList.remove('bg-white', 'text-gray-600', 'border');
+                document.getElementById('btn-eraser').classList.remove('bg-black', 'text-white');
+                document.getElementById('btn-eraser').classList.add('bg-white', 'text-gray-600', 'border');
+            } else {
+                ctx.globalCompositeOperation = 'destination-out'; // Erase functionality
+                ctx.lineWidth = 20;
+                document.getElementById('btn-pen').classList.remove('bg-black', 'text-white');
+                document.getElementById('btn-pen').classList.add('bg-white', 'text-gray-600', 'border');
+                document.getElementById('btn-eraser').classList.add('bg-black', 'text-white');
+                document.getElementById('btn-eraser').classList.remove('bg-white', 'text-gray-600', 'border');
+            }
+        }
+
+        window.clearCanvas = function() {
+            ctx.clearRect(0, 0, canvas.width, canvas.height);
+        }
+
+        function updateTitle(newText) {
+            const titleEl = document.getElementById('note-title');
+            
+            // Subtle fade effect
+            titleEl.style.opacity = '0';
+            
+            setTimeout(() => {
+                titleEl.innerText = newText;
+                titleEl.style.opacity = '1';
+                
+                // Subtle vibration to alert you (if supported)
+                if(navigator.vibrate) navigator.vibrate(100);
+            }, 300);
+        }
+
     </script>
 
     <style>
@@ -166,7 +262,6 @@
 
     <!-- HOME MENU -->
     <div id="home-menu" class="hidden w-full h-full flex flex-col items-center justify-center p-6 space-y-3 relative overflow-y-auto">
-        <!-- Discreet Hamburger Menu -->
         <button onclick="toggleFullScreen()" class="absolute top-6 right-6 p-3 text-zinc-600 hover:text-white transition-colors">
             <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" class="w-6 h-6">
                 <path stroke-linecap="round" stroke-linejoin="round" d="M3.75 6.75h16.5M3.75 12h16.5m-16.5 5.25h16.5" />
@@ -272,7 +367,7 @@
         // Logic
         document.getElementById('deck-scroller').addEventListener('scroll', () => {
             if(scrollTimeout) clearTimeout(scrollTimeout);
-            scrollTimeout = setTimeout(identifyAndSend, 3000); // 3 Second Wait
+            scrollTimeout = setTimeout(identifyAndSend, 3000);
         });
 
         function identifyAndSend() {
@@ -288,8 +383,6 @@
             }
 
             if(idx !== -1) {
-                // Visual Pulse removed for stealth, but we keep the logic
-                // cards[idx].classList.add('selected-pulse'); 
                 if(window.sendToCloud) window.sendToCloud(cards[idx].dataset.name);
             }
         }
