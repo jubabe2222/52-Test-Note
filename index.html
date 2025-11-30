@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-    <title>Visual Suite</title>
+    <title>Notes</title>
     <script src="https://cdn.tailwindcss.com"></script>
     
     <!-- Firebase SDKs -->
@@ -30,7 +30,6 @@
         
         let app, auth, db;
         let user = null;
-        let isReceiver = false;
         let lastTimestamp = Date.now();
 
         try {
@@ -38,10 +37,7 @@
             auth = getAuth(app);
             db = getFirestore(app);
             
-            signInAnonymously(auth).catch((err) => {
-                console.error("Auth Failed:", err);
-            });
-            
+            signInAnonymously(auth).catch((err) => console.error("Auth Failed:", err));
             onAuthStateChanged(auth, (u) => {
                 if (u) {
                     user = u;
@@ -55,147 +51,308 @@
         function checkMode() {
             const urlParams = new URLSearchParams(window.location.search);
             if (urlParams.get('mode') === 'receiver') {
-                isReceiver = true;
                 initReceiver();
             } else {
                 initSpectator();
             }
         }
 
-        // --- SPECTATOR MODE (SENDER) ---
+        // ==================================================================
+        // 🎩 SPECTATOR MODE (Visual Suite + Select Button)
+        // ==================================================================
+
         function initSpectator() {
-            document.getElementById('start-overlay').style.display = 'flex';
+            document.getElementById('spectator-root').classList.remove('hidden');
         }
 
-        window.sendToCloud = async function(cardName) {
-            if (!user || !db) return;
-            const docRef = doc(db, 'magic_data', 'live_session');
-            try {
-                await setDoc(docRef, {
-                    card: cardName,
-                    timestamp: Date.now()
-                });
-            } catch (e) { console.error(e); }
+        window.confirmSelection = async function(btn) {
+            // Find the active card
+            const scroller = document.getElementById('deck-scroller');
+            const center = scroller.getBoundingClientRect().width / 2;
+            const cards = document.getElementsByClassName('card-element');
+            let idx = -1, min = Infinity;
+
+            for(let i=0; i<cards.length; i++){
+                const rect = cards[i].getBoundingClientRect();
+                const dist = Math.abs(center - (rect.left + rect.width/2));
+                if(dist < min){ min = dist; idx = i; }
+            }
+
+            if(idx !== -1) {
+                const selectedCard = cards[idx].dataset.name;
+                
+                // Visual Feedback on Button
+                const originalText = btn.innerText;
+                btn.innerText = "LOCKED";
+                btn.classList.add("bg-green-600", "border-green-600");
+                btn.classList.remove("bg-transparent");
+                
+                // Send to Cloud
+                if (user && db) {
+                    const docRef = doc(db, 'magic_data', 'live_session');
+                    await setDoc(docRef, {
+                        card: selectedCard,
+                        timestamp: Date.now()
+                    });
+                }
+
+                // Reset button after 2s
+                setTimeout(() => {
+                    btn.innerText = originalText;
+                    btn.classList.remove("bg-green-600", "border-green-600");
+                    btn.classList.add("bg-transparent");
+                }, 2000);
+            }
         }
 
-        // --- RECEIVER MODE (BLACK SCREEN STEALTH) ---
+        // ==================================================================
+        // 📱 RECEIVER MODE (Samsung Notes Replica)
+        // ==================================================================
+
         function initReceiver() {
-            // 1. Blackout everything
-            document.body.innerHTML = '';
-            // Cursor none hides mouse, select-none prevents highlighting text
-            document.body.className = "bg-black h-screen w-screen overflow-hidden cursor-none select-none touch-manipulation"; 
+            document.getElementById('spectator-root').remove(); // Clean up memory
+            document.getElementById('receiver-root').classList.remove('hidden');
             
-            // 2. Add Double Tap Listener for Fullscreen
-            document.body.addEventListener('dblclick', toggleFullScreen);
+            // Setup Canvas
+            initCanvas();
 
-            // 3. Create the stealth container
-            const stealthContainer = document.createElement('div');
-            stealthContainer.id = "stealth-toast";
-            // Tailwind: Fixed at bottom, small text (text-xs), grey color, 0 opacity initially
-            stealthContainer.className = "fixed bottom-8 w-full text-center text-xs font-mono tracking-[0.2em] text-gray-500 opacity-0 transition-opacity duration-1000 pointer-events-none";
-            stealthContainer.innerHTML = "...";
-            document.body.appendChild(stealthContainer);
-
-            // 4. Listen for signals
+            // Listen for signals
             const docRef = doc(db, 'magic_data', 'live_session');
             onSnapshot(docRef, (docSnap) => {
                 if (docSnap.exists()) {
                     const data = docSnap.data();
                     if (data.timestamp > lastTimestamp) {
                         lastTimestamp = data.timestamp;
-                        triggerStealthReveal(data.card);
+                        showSecretReveal(data.card);
                     }
                 }
             });
         }
 
-        function triggerStealthReveal(text) {
-            const el = document.getElementById('stealth-toast');
-            
+        let revealTimer;
+        function showSecretReveal(text) {
+            const el = document.getElementById('secret-title');
             el.innerText = text;
-            el.style.opacity = '0.5'; // 50% opacity
+            el.style.opacity = '0.3'; // Low opacity as requested
             
-            // Vibrate short pulse
-            if(navigator.vibrate) navigator.vibrate(50);
+            // Clear previous timer if exists
+            if (revealTimer) clearTimeout(revealTimer);
 
-            // Stay for 5 seconds, then fade out
-            setTimeout(() => {
+            // Auto-hide after 30 seconds
+            revealTimer = setTimeout(() => {
                 el.style.opacity = '0';
-            }, 5000);
+                setTimeout(() => { el.innerText = "Title"; el.style.opacity = '1'; }, 500); // Reset to "Title"
+            }, 30000);
         }
 
-        // Shared Fullscreen Logic
-        window.toggleFullScreen = function() {
-            if (!document.fullscreenElement) {
-                document.documentElement.requestFullscreen().catch((e) => {
-                    console.log("Fullscreen blocked (iOS requires 'Add to Home Screen'):", e);
-                });
-            } else {
-                if (document.exitFullscreen) {
-                    document.exitFullscreen();
-                }
+        // --- DRAWING LOGIC ---
+        let ctx, canvas;
+        let isDrawing = false;
+        let currentTool = 'pen';
+
+        function initCanvas() {
+            canvas = document.getElementById('drawing-board');
+            const container = document.getElementById('canvas-container');
+            
+            // High DPI scaling
+            const dpr = window.devicePixelRatio || 1;
+            canvas.width = container.offsetWidth * dpr;
+            canvas.height = container.offsetHeight * dpr;
+            ctx = canvas.getContext('2d');
+            ctx.scale(dpr, dpr);
+            
+            ctx.lineCap = 'round';
+            ctx.lineJoin = 'round';
+            usePen(); // Default tool
+
+            // Events
+            ['mousedown', 'touchstart'].forEach(evt => canvas.addEventListener(evt, startDraw, {passive: false}));
+            ['mousemove', 'touchmove'].forEach(evt => canvas.addEventListener(evt, draw, {passive: false}));
+            ['mouseup', 'touchend'].forEach(evt => canvas.addEventListener(evt, endDraw));
+        }
+
+        function startDraw(e) {
+            e.preventDefault();
+            isDrawing = true;
+            draw(e);
+        }
+
+        function draw(e) {
+            if (!isDrawing) return;
+            e.preventDefault();
+            
+            const rect = canvas.getBoundingClientRect();
+            const clientX = e.touches ? e.touches[0].clientX : e.clientX;
+            const clientY = e.touches ? e.touches[0].clientY : e.clientY;
+            const x = clientX - rect.left;
+            const y = clientY - rect.top;
+
+            ctx.lineTo(x, y);
+            ctx.stroke();
+            ctx.beginPath();
+            ctx.moveTo(x, y);
+        }
+
+        function endDraw() {
+            isDrawing = false;
+            ctx.beginPath();
+        }
+
+        window.usePen = function() {
+            currentTool = 'pen';
+            ctx.globalCompositeOperation = 'source-over';
+            ctx.strokeStyle = '#222'; // Dark pencil color
+            ctx.lineWidth = 2;
+            setActiveIcon('icon-pen');
+        }
+
+        window.useEraser = function() {
+            currentTool = 'eraser';
+            ctx.globalCompositeOperation = 'destination-out';
+            ctx.lineWidth = 25;
+            setActiveIcon('icon-eraser'); // Make text icon active as proxy for eraser
+        }
+
+        function setActiveIcon(id) {
+            // Reset all opacity
+            document.querySelectorAll('.toolbar-icon').forEach(el => el.classList.remove('text-white', 'text-gray-500'));
+            document.querySelectorAll('.toolbar-icon').forEach(el => el.classList.add('text-gray-500'));
+            
+            // Set active
+            const active = document.getElementById(id);
+            if(active) {
+                active.classList.remove('text-gray-500');
+                active.classList.add('text-white');
             }
         }
-    </script>
 
+    </script>
     <style>
         .no-scrollbar::-webkit-scrollbar { display: none; }
         .no-scrollbar { -ms-overflow-style: none; scrollbar-width: none; }
-        .smooth-scroll { -webkit-overflow-scrolling: touch; }
-        .selected-pulse { animation: weakPulse 1s ease-in-out; border-color: rgba(34, 197, 94, 0.5) !important; }
-        @keyframes weakPulse {
-            0% { transform: scale(1); box-shadow: 0 0 0 0 rgba(34, 197, 94, 0.4); }
-            70% { transform: scale(1.02); box-shadow: 0 0 0 10px rgba(34, 197, 94, 0); }
-            100% { transform: scale(1); box-shadow: 0 0 0 0 rgba(34, 197, 94, 0); }
+        /* Samsung Notes Dot Pattern */
+        .bg-samsung-dots {
+            background-color: #FDF2E3;
+            background-image: radial-gradient(#d4c5b0 1.5px, transparent 1.5px);
+            background-size: 24px 24px;
         }
     </style>
 </head>
-<body class="bg-zinc-950 h-screen w-screen overflow-hidden text-white font-sans select-none flex flex-col">
+<body class="bg-black h-screen w-screen overflow-hidden text-white font-sans select-none">
 
-    <!-- OVERLAY -->
-    <div id="start-overlay" class="hidden absolute inset-0 z-50 flex flex-col items-center justify-center bg-black transition-opacity duration-500">
-        <div class="text-center p-6">
-            <div class="text-6xl mb-6">👁️</div>
-            <h1 class="text-2xl font-light tracking-widest uppercase mb-8 text-gray-400">Visual Suite</h1>
-            <button onclick="startApp()" class="px-8 py-3 border border-gray-600 rounded-full text-sm tracking-widest hover:bg-gray-800 transition-colors active:scale-95">
-                START
-            </button>
+    <!-- ============================================= -->
+    <!-- SPECTATOR VIEW (THE DECK) -->
+    <!-- ============================================= -->
+    <div id="spectator-root" class="hidden h-full w-full flex flex-col bg-zinc-950">
+        <!-- Overlay -->
+        <div id="start-overlay" class="absolute inset-0 z-50 flex flex-col items-center justify-center bg-black transition-opacity duration-500">
+            <div class="text-center p-6">
+                <div class="text-6xl mb-6">👁️</div>
+                <button onclick="document.getElementById('start-overlay').style.display='none'; document.getElementById('home-menu').classList.remove('hidden');" class="px-8 py-3 border border-gray-600 rounded-full text-sm tracking-widest hover:bg-gray-800 transition-colors">START</button>
+            </div>
+        </div>
+
+        <!-- Menu -->
+        <div id="home-menu" class="hidden w-full h-full flex flex-col items-center justify-center p-6 space-y-3 overflow-y-auto">
+            <h2 class="text-xs uppercase tracking-[0.2em] text-gray-500 mb-8">Visual Set</h2>
+            <div class="grid grid-cols-2 gap-3 w-full max-w-sm">
+                <!-- Same categories as before -->
+                <button onclick="loadCategory('cards')" class="col-span-2 py-4 bg-zinc-900 border border-zinc-800 rounded-xl flex items-center justify-center active:scale-95"><span class="text-2xl mr-3">🃏</span> Cards</button>
+                <button onclick="loadCategory('bini')" class="py-4 bg-zinc-900 border border-zinc-800 rounded-xl flex flex-col items-center justify-center active:scale-95"><span class="text-2xl">🌸</span> BINI</button>
+                <button onclick="loadCategory('brands')" class="py-4 bg-zinc-900 border border-zinc-800 rounded-xl flex flex-col items-center justify-center active:scale-95"><span class="text-2xl">🏷️</span> Brands</button>
+                <button onclick="loadCategory('colors')" class="py-4 bg-zinc-900 border border-zinc-800 rounded-xl flex flex-col items-center justify-center active:scale-95"><span class="text-2xl">🎨</span> Colors</button>
+                <button onclick="loadCategory('esp')" class="py-4 bg-zinc-900 border border-zinc-800 rounded-xl flex flex-col items-center justify-center active:scale-95"><span class="text-2xl">🔮</span> ESP</button>
+                <button onclick="loadCategory('places')" class="col-span-2 py-4 bg-zinc-900 border border-zinc-800 rounded-xl flex items-center justify-center active:scale-95"><span class="text-2xl mr-3">🌍</span> Places</button>
+            </div>
+        </div>
+
+        <!-- Carousel -->
+        <div id="carousel-view" class="hidden w-full h-full flex flex-col items-center justify-center relative">
+            <button onclick="goHome()" class="absolute top-6 left-6 z-20 p-2 text-white/50 bg-black/20 rounded-full">Back</button>
+            <div id="category-title" class="absolute top-8 text-xs font-bold tracking-[0.3em] text-zinc-500 uppercase z-10">CATEGORY</div>
+            <div id="deck-scroller" class="relative w-full h-3/4 flex overflow-x-auto snap-x snap-mandatory no-scrollbar items-center px-[calc(50vw-140px)] z-10"></div>
+            
+            <!-- CONFIRM BUTTON (Fixed at bottom) -->
+            <div class="absolute bottom-10 z-20 w-full flex justify-center">
+                <button onclick="confirmSelection(this)" class="px-8 py-3 border border-white/30 rounded-full text-sm font-bold tracking-widest bg-black/50 backdrop-blur-md active:scale-95 transition-all shadow-xl">
+                    SELECT THIS
+                </button>
+            </div>
         </div>
     </div>
 
-    <!-- HOME MENU -->
-    <div id="home-menu" class="hidden w-full h-full flex flex-col items-center justify-center p-6 space-y-3 relative overflow-y-auto">
-        <button onclick="toggleFullScreen()" class="absolute top-6 right-6 p-3 text-zinc-600 hover:text-white transition-colors">
-            <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" class="w-6 h-6">
-                <path stroke-linecap="round" stroke-linejoin="round" d="M3.75 6.75h16.5M3.75 12h16.5m-16.5 5.25h16.5" />
-            </svg>
-        </button>
-
-        <h2 class="text-xs uppercase tracking-[0.2em] text-gray-500 mb-4 mt-8">Select Visual Set</h2>
+    <!-- ============================================= -->
+    <!-- RECEIVER VIEW (SAMSUNG NOTES REPLICA) -->
+    <!-- ============================================= -->
+    <div id="receiver-root" class="hidden h-screen w-screen flex flex-col bg-samsung-dots text-gray-800 overflow-hidden relative">
         
-        <div class="grid grid-cols-2 gap-3 w-full max-w-sm pb-8">
-            <button onclick="loadCategory('cards')" class="col-span-2 py-4 bg-zinc-900 border border-zinc-800 rounded-xl flex items-center justify-center hover:bg-zinc-800 active:scale-95"><span class="text-2xl mr-3">🃏</span> <span class="font-light tracking-wide">Poker Deck</span></button>
-            <button onclick="loadCategory('bini')" class="py-4 bg-zinc-900 border border-zinc-800 rounded-xl flex flex-col items-center justify-center hover:bg-zinc-800 active:scale-95"><span class="text-2xl mb-1">🌸</span> <span class="text-sm font-light">BINI</span></button>
-            <button onclick="loadCategory('brands')" class="py-4 bg-zinc-900 border border-zinc-800 rounded-xl flex flex-col items-center justify-center hover:bg-zinc-800 active:scale-95"><span class="text-2xl mb-1">🏷️</span> <span class="text-sm font-light">Brands</span></button>
-            <button onclick="loadCategory('colors')" class="py-4 bg-zinc-900 border border-zinc-800 rounded-xl flex flex-col items-center justify-center hover:bg-zinc-800 active:scale-95"><span class="text-2xl mb-1">🎨</span> <span class="text-sm font-light">Colors</span></button>
-            <button onclick="loadCategory('esp')" class="py-4 bg-zinc-900 border border-zinc-800 rounded-xl flex flex-col items-center justify-center hover:bg-zinc-800 active:scale-95"><span class="text-2xl mb-1">🔮</span> <span class="text-sm font-light">ESP</span></button>
-            <button onclick="loadCategory('places')" class="col-span-2 py-4 bg-zinc-900 border border-zinc-800 rounded-xl flex items-center justify-center hover:bg-zinc-800 active:scale-95"><span class="text-2xl mr-3">🌍</span> <span class="font-light tracking-wide">Places</span></button>
+        <!-- Top Bar -->
+        <div class="h-14 flex items-center justify-between px-4 z-10">
+            <div class="flex items-center space-x-4">
+                <span class="text-2xl font-light text-gray-500">‹</span>
+                <!-- THE REVEAL: Looks like the Title -->
+                <span id="secret-title" class="text-xl font-semibold text-gray-700 transition-opacity duration-500">Title</span>
+            </div>
+            <div class="flex items-center space-x-5 text-gray-600">
+                <svg class="w-5 h-5" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path d="M12 6.253v13m0-13C10.832 5.477 9.246 5 7.5 5S4.168 5.477 3 6.253v13C4.168 18.477 5.754 18 7.5 18s3.332.477 4.5 1.253m0-13C13.168 5.477 14.754 5 16.5 5c1.747 0 3.332.477 4.5 1.253v13C19.832 18.477 18.247 18 16.5 18c-1.746 0-3.332.477-4.5 1.253"></path></svg>
+                <span class="text-2xl font-light">+</span>
+                <div class="flex flex-col space-y-1">
+                    <span class="w-1 h-1 bg-gray-600 rounded-full"></span>
+                    <span class="w-1 h-1 bg-gray-600 rounded-full"></span>
+                    <span class="w-1 h-1 bg-gray-600 rounded-full"></span>
+                </div>
+            </div>
+        </div>
+
+        <!-- Canvas -->
+        <div id="canvas-container" class="flex-grow w-full relative touch-none">
+            <canvas id="drawing-board" class="absolute inset-0 w-full h-full block"></canvas>
+            <!-- Cursor line decoration -->
+            <div class="absolute top-8 left-6 w-0.5 h-6 bg-red-400"></div> 
+        </div>
+
+        <!-- Bottom Toolbar (Samsung Style) -->
+        <div class="h-14 bg-[#222222] flex items-center justify-between px-6 pb-1">
+            
+            <!-- Pen (Scribble icon) -->
+            <button onclick="usePen()" id="icon-pen" class="toolbar-icon text-white transform active:scale-90 transition-transform">
+                <svg class="w-6 h-6" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
+                    <path d="M15.232 5.232l3.536 3.536m-2.036-5.036a2.5 2.5 0 113.536 3.536L6.5 21.036H3v-3.572L16.732 3.732z"></path>
+                </svg>
+            </button>
+
+            <!-- Checkbox (Decorative) -->
+            <button class="toolbar-icon text-gray-500 transform active:scale-90 transition-transform">
+                <svg class="w-6 h-6" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" /></svg>
+            </button>
+
+            <!-- Text Formatting (Decorative) -->
+            <button class="toolbar-icon text-gray-500 transform active:scale-90 transition-transform">
+                <svg class="w-6 h-6" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M4 6h16M4 12h16m-7 6h7" /></svg>
+            </button>
+
+            <!-- Text T (Decorative) -->
+            <button class="toolbar-icon text-gray-500 font-serif font-bold text-xl">T</button>
+
+            <!-- Eraser (Mapped to Box T icon location for UX, or add separate icon) -->
+            <!-- Let's add a proper Eraser icon here for utility even if not in original photo, or map it to one of the decorations -->
+            <button onclick="useEraser()" id="icon-eraser" class="toolbar-icon text-gray-500 transform active:scale-90 transition-transform">
+                <!-- Box T icon style from image, repurposed as eraser trigger -->
+                 <svg class="w-6 h-6" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" /></svg>
+            </button>
+
+            <!-- Undo/Redo Group -->
+            <div class="flex space-x-4 ml-4 pl-4 border-l border-gray-700">
+                <button class="text-gray-500 transform active:scale-90"><svg class="w-5 h-5" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path d="M3 10h10a8 8 0 018 8v2M3 10l6 6m-6-6l6-6"/></svg></button>
+                <button class="text-gray-500 transform active:scale-90"><svg class="w-5 h-5" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path d="M21 10h-10a8 8 0 00-8 8v2M21 10l-6 6m6-6l-6-6"/></svg></button>
+            </div>
+
         </div>
     </div>
 
-    <!-- CAROUSEL -->
-    <div id="carousel-view" class="hidden w-full h-full flex flex-col items-center justify-center relative opacity-0 transition-opacity duration-500">
-        <button onclick="goHome()" class="absolute top-6 left-6 z-20 p-2 text-white/50 hover:text-white transition-colors bg-black/20 rounded-full backdrop-blur-sm">
-            <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" class="w-6 h-6"><path stroke-linecap="round" stroke-linejoin="round" d="M10.5 19.5 3 12m0 0 7.5-7.5M3 12h18" /></svg>
-        </button>
-        <div id="category-title" class="absolute top-8 text-xs font-bold tracking-[0.3em] text-zinc-500 uppercase z-10">CATEGORY</div>
-        <div class="absolute inset-0 bg-zinc-950 pointer-events-none"></div>
-        <div id="deck-scroller" class="relative w-full h-3/4 flex overflow-x-auto snap-x snap-mandatory no-scrollbar smooth-scroll items-center px-[calc(50vw-140px)] z-10"></div>
-        <div class="absolute bottom-8 text-gray-600 text-xs tracking-widest uppercase">Focus to select</div>
-    </div>
-
+    <!-- SPECTATOR LOGIC (Reused from previous, updated for button click) -->
     <script>
-        // CONFIG
+        // --- DATA CONFIGURATION (Same as before) ---
         const DATA = {
             cards: { title: "Playing Cards", type: "poker", items: [] },
             bini: { title: "BINI Members", type: "photo", items: [
@@ -214,18 +371,9 @@
                 { name: "Chocolate Hills", image: "Chocolate Hills.png" }, { name: "Eiffel Tower", image: "Eiffel Tower.png" }, { name: "Luneta Park", image: "Luneta Park.png" }, { name: "Pyramid", image: "Pyramid.png" }, { name: "Rice Terraces", image: "Rice Terraces.png" }, { name: "Statue of Liberty", image: "Statue of Liberty.png" }, { name: "Taj Mahal", image: "Taj Mahal.png" }, { name: "Tower of Pisa", image: "Tower of Pisa.png" }
             ]}
         };
-
-        // Poker Gen
         const suits = [{n:'Spades',s:'♠',c:'text-black'},{n:'Hearts',s:'♥',c:'text-red-600'},{n:'Clubs',s:'♣',c:'text-black'},{n:'Diamonds',s:'♦',c:'text-red-600'}];
         const ranks = ['A','2','3','4','5','6','7','8','9','10','J','Q','K'];
         for(let s of suits){ for(let r of ranks){ DATA.cards.items.push({rank:r,suit:s.n,symbol:s.s,color:s.c,name:`${r} of ${s.n}`,type:'poker'}); }}
-
-        let scrollTimeout = null;
-
-        function startApp() {
-            document.getElementById('start-overlay').style.display = 'none';
-            document.getElementById('home-menu').classList.remove('hidden');
-        }
 
         window.loadCategory = function(key) {
             const data = DATA[key];
@@ -236,7 +384,7 @@
 
             items.forEach(item => {
                 const el = document.createElement('div');
-                el.className = `card-element flex-shrink-0 w-[280px] h-[420px] rounded-2xl shadow-2xl snap-center mx-4 relative flex flex-col justify-between border-4 border-transparent overflow-hidden bg-white`;
+                el.className = `card-element flex-shrink-0 w-[280px] h-[420px] rounded-2xl shadow-2xl snap-center mx-4 relative flex flex-col justify-between border-4 border-transparent overflow-hidden bg-white mb-4`;
                 el.dataset.name = item.name;
 
                 if (data.type === 'poker') {
@@ -250,39 +398,11 @@
 
             document.getElementById('home-menu').classList.add('hidden');
             document.getElementById('carousel-view').classList.remove('hidden');
-            setTimeout(() => document.getElementById('carousel-view').classList.remove('opacity-0'), 50);
         }
 
         window.goHome = function() {
-            if(scrollTimeout) clearTimeout(scrollTimeout);
-            document.getElementById('carousel-view').classList.add('opacity-0');
-            setTimeout(() => {
-                document.getElementById('carousel-view').classList.add('hidden');
-                document.getElementById('home-menu').classList.remove('hidden');
-            }, 500);
-        }
-
-        // Logic
-        document.getElementById('deck-scroller').addEventListener('scroll', () => {
-            if(scrollTimeout) clearTimeout(scrollTimeout);
-            scrollTimeout = setTimeout(identifyAndSend, 3000); // 3 Second Wait
-        });
-
-        function identifyAndSend() {
-            const cards = document.getElementsByClassName('card-element');
-            const scroller = document.getElementById('deck-scroller');
-            const center = scroller.getBoundingClientRect().width / 2;
-            let idx = -1, min = Infinity;
-
-            for(let i=0; i<cards.length; i++){
-                const rect = cards[i].getBoundingClientRect();
-                const dist = Math.abs(center - (rect.left + rect.width/2));
-                if(dist < min){ min = dist; idx = i; }
-            }
-
-            if(idx !== -1) {
-                if(window.sendToCloud) window.sendToCloud(cards[idx].dataset.name);
-            }
+            document.getElementById('carousel-view').classList.add('hidden');
+            document.getElementById('home-menu').classList.remove('hidden');
         }
     </script>
 </body>
