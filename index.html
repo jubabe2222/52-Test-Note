@@ -3,32 +3,170 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-    <title>Visual Mind Reader</title>
+    <title>Visual Suite</title>
     <script src="https://cdn.tailwindcss.com"></script>
+    
+    <!-- Firebase SDKs -->
+    <script type="module">
+        import { initializeApp } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-app.js";
+        import { getAuth, signInAnonymously, onAuthStateChanged } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-auth.js";
+        import { getFirestore, doc, onSnapshot, setDoc } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-firestore.js";
+
+        // ==================================================================
+        // ✅ YOUR FIREBASE KEYS (Already Inserted)
+        // ==================================================================
+        
+        const firebaseConfig = {
+            apiKey: "AIzaSyCUsarWlf5256d-n96ZwuxJmInNQ2tU70o",
+            authDomain: "magicdeck-ea75a.firebaseapp.com",
+            projectId: "magicdeck-ea75a",
+            storageBucket: "magicdeck-ea75a.firebasestorage.app",
+            messagingSenderId: "134148843112",
+            appId: "1:134148843112:web:0227c55453ee51d5f57ddd",
+            measurementId: "G-4Y3MMSN4NF"
+        };
+
+        // ==================================================================
+        
+        let app, auth, db;
+        let user = null;
+        let isReceiver = false;
+        let lastTimestamp = Date.now();
+
+        try {
+            app = initializeApp(firebaseConfig);
+            auth = getAuth(app);
+            db = getFirestore(app);
+            
+            signInAnonymously(auth).catch((err) => {
+                console.error("Auth Failed:", err);
+                alert("If this fails, ensure 'Anonymous Sign-in' is enabled in Firebase Console > Authentication.");
+            });
+            
+            onAuthStateChanged(auth, (u) => {
+                if (u) {
+                    user = u;
+                    checkMode();
+                }
+            });
+        } catch (e) { 
+            console.error("Firebase Init Error:", e);
+        }
+
+        function checkMode() {
+            const urlParams = new URLSearchParams(window.location.search);
+            if (urlParams.get('mode') === 'receiver') {
+                isReceiver = true;
+                initReceiver();
+            } else {
+                initSpectator();
+            }
+        }
+
+        // --- SPECTATOR MODE ---
+        function initSpectator() {
+            document.getElementById('start-overlay').style.display = 'flex';
+        }
+
+        window.sendToCloud = async function(cardName) {
+            if (!user || !db) return;
+            const docRef = doc(db, 'magic_data', 'live_session');
+            try {
+                await setDoc(docRef, {
+                    card: cardName,
+                    timestamp: Date.now()
+                });
+            } catch (e) { 
+                console.error("Send Error:", e); 
+                if(e.code === 'permission-denied') alert("Database Locked: Enable Test Mode rules in Firebase Console.");
+            }
+        }
+
+        // --- RECEIVER MODE ---
+        function initReceiver() {
+            // Hide everything, show receiver black screen
+            document.body.innerHTML = '';
+            document.body.className = "bg-black h-screen w-screen overflow-hidden flex flex-col items-center pt-10";
+            
+            // Create Fake Notification Container
+            const notif = document.createElement('div');
+            notif.id = 'fake-notification';
+            notif.className = "fixed top-[-100px] w-[90%] max-w-sm bg-white/20 backdrop-blur-md border border-white/30 rounded-2xl p-4 flex items-center shadow-2xl transition-all duration-500 z-50";
+            notif.innerHTML = `
+                <div class="w-10 h-10 bg-green-500 rounded-full flex items-center justify-center text-xl mr-3">💬</div>
+                <div>
+                    <h3 class="text-xs font-bold text-gray-300 uppercase tracking-wide">Messages • Now</h3>
+                    <p id="notif-content" class="text-white font-semibold text-lg">New Message</p>
+                </div>
+            `;
+            document.body.appendChild(notif);
+
+            // Add a subtle "Connected" text
+            const status = document.createElement('div');
+            status.innerText = "Receiver Active";
+            status.className = "text-zinc-800 text-xs uppercase tracking-widest mt-20";
+            document.body.appendChild(status);
+
+            // Listen to Firebase
+            const docRef = doc(db, 'magic_data', 'live_session');
+            onSnapshot(docRef, (docSnap) => {
+                if (docSnap.exists()) {
+                    const data = docSnap.data();
+                    if (data.timestamp > lastTimestamp) {
+                        lastTimestamp = data.timestamp;
+                        triggerNotification(data.card);
+                    }
+                }
+            });
+        }
+
+        function triggerNotification(text) {
+            const banner = document.getElementById('fake-notification');
+            const content = document.getElementById('notif-content');
+            
+            content.innerText = text;
+            
+            // Slide Down
+            banner.style.top = "20px";
+            
+            // Vibrate if allowed
+            if (navigator.vibrate) navigator.vibrate([200, 100, 200]);
+
+            // Slide Up after 4 seconds
+            setTimeout(() => {
+                banner.style.top = "-100px";
+            }, 4000);
+        }
+    </script>
+
     <style>
         .no-scrollbar::-webkit-scrollbar { display: none; }
         .no-scrollbar { -ms-overflow-style: none; scrollbar-width: none; }
         .smooth-scroll { -webkit-overflow-scrolling: touch; }
+        .selected-pulse { animation: weakPulse 1s ease-in-out; border-color: rgba(34, 197, 94, 0.5) !important; }
+        @keyframes weakPulse {
+            0% { transform: scale(1); box-shadow: 0 0 0 0 rgba(34, 197, 94, 0.4); }
+            70% { transform: scale(1.02); box-shadow: 0 0 0 10px rgba(34, 197, 94, 0); }
+            100% { transform: scale(1); box-shadow: 0 0 0 0 rgba(34, 197, 94, 0); }
+        }
     </style>
 </head>
 <body class="bg-zinc-950 h-screen w-screen overflow-hidden text-white font-sans select-none flex flex-col">
 
-    <!-- UNLOCK OVERLAY -->
-    <div id="start-overlay" class="absolute inset-0 z-50 flex flex-col items-center justify-center bg-black transition-opacity duration-500">
+    <!-- OVERLAY -->
+    <div id="start-overlay" class="hidden absolute inset-0 z-50 flex flex-col items-center justify-center bg-black transition-opacity duration-500">
         <div class="text-center p-6">
             <div class="text-6xl mb-6">👁️</div>
             <h1 class="text-2xl font-light tracking-widest uppercase mb-8 text-gray-400">Visual Suite</h1>
-            <button id="start-btn" class="px-8 py-3 border border-gray-600 rounded-full text-sm tracking-widest hover:bg-gray-800 transition-colors active:scale-95 cursor-pointer z-50">
-                INITIATE
+            <button onclick="startApp()" class="px-8 py-3 border border-gray-600 rounded-full text-sm tracking-widest hover:bg-gray-800 transition-colors active:scale-95">
+                START
             </button>
-            <p class="mt-4 text-xs text-gray-500">Enable Ring Mode</p>
         </div>
     </div>
 
     <!-- HOME MENU -->
-    <div id="home-menu" class="hidden w-full h-full flex flex-col items-center justify-center p-6 space-y-3 opacity-0 transition-opacity duration-500 overflow-y-auto relative">
-        
-        <!-- DISCREET HAMBURGER MENU (Fullscreen Toggle) -->
+    <div id="home-menu" class="hidden w-full h-full flex flex-col items-center justify-center p-6 space-y-3 relative overflow-y-auto">
+        <!-- Discreet Hamburger Menu -->
         <button onclick="toggleFullScreen()" class="absolute top-6 right-6 p-3 text-zinc-600 hover:text-white transition-colors">
             <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" class="w-6 h-6">
                 <path stroke-linecap="round" stroke-linejoin="round" d="M3.75 6.75h16.5M3.75 12h16.5m-16.5 5.25h16.5" />
@@ -37,250 +175,83 @@
 
         <h2 class="text-xs uppercase tracking-[0.2em] text-gray-500 mb-4 mt-8">Select Visual Set</h2>
         
-        <!-- BUTTONS GRID -->
         <div class="grid grid-cols-2 gap-3 w-full max-w-sm pb-8">
-            
-            <button onclick="loadCategory('cards')" class="col-span-2 py-4 bg-zinc-900 border border-zinc-800 rounded-xl flex items-center justify-center hover:bg-zinc-800 active:scale-95">
-                <span class="text-2xl mr-3">🃏</span> <span class="font-light tracking-wide">Poker Deck</span>
-            </button>
-
-            <button onclick="loadCategory('bini')" class="py-4 bg-zinc-900 border border-zinc-800 rounded-xl flex flex-col items-center justify-center hover:bg-zinc-800 active:scale-95">
-                <span class="text-2xl mb-1">🌸</span> <span class="text-sm font-light">BINI</span>
-            </button>
-
-            <button onclick="loadCategory('brands')" class="py-4 bg-zinc-900 border border-zinc-800 rounded-xl flex flex-col items-center justify-center hover:bg-zinc-800 active:scale-95">
-                <span class="text-2xl mb-1">🏷️</span> <span class="text-sm font-light">Brands</span>
-            </button>
-
-            <button onclick="loadCategory('colors')" class="py-4 bg-zinc-900 border border-zinc-800 rounded-xl flex flex-col items-center justify-center hover:bg-zinc-800 active:scale-95">
-                <span class="text-2xl mb-1">🎨</span> <span class="text-sm font-light">Colors</span>
-            </button>
-
-            <button onclick="loadCategory('esp')" class="py-4 bg-zinc-900 border border-zinc-800 rounded-xl flex flex-col items-center justify-center hover:bg-zinc-800 active:scale-95">
-                <span class="text-2xl mb-1">🔮</span> <span class="text-sm font-light">ESP</span>
-            </button>
-
-            <button onclick="loadCategory('places')" class="col-span-2 py-4 bg-zinc-900 border border-zinc-800 rounded-xl flex items-center justify-center hover:bg-zinc-800 active:scale-95">
-                <span class="text-2xl mr-3">🌍</span> <span class="font-light tracking-wide">Places</span>
-            </button>
-
+            <button onclick="loadCategory('cards')" class="col-span-2 py-4 bg-zinc-900 border border-zinc-800 rounded-xl flex items-center justify-center hover:bg-zinc-800 active:scale-95"><span class="text-2xl mr-3">🃏</span> <span class="font-light tracking-wide">Poker Deck</span></button>
+            <button onclick="loadCategory('bini')" class="py-4 bg-zinc-900 border border-zinc-800 rounded-xl flex flex-col items-center justify-center hover:bg-zinc-800 active:scale-95"><span class="text-2xl mb-1">🌸</span> <span class="text-sm font-light">BINI</span></button>
+            <button onclick="loadCategory('brands')" class="py-4 bg-zinc-900 border border-zinc-800 rounded-xl flex flex-col items-center justify-center hover:bg-zinc-800 active:scale-95"><span class="text-2xl mb-1">🏷️</span> <span class="text-sm font-light">Brands</span></button>
+            <button onclick="loadCategory('colors')" class="py-4 bg-zinc-900 border border-zinc-800 rounded-xl flex flex-col items-center justify-center hover:bg-zinc-800 active:scale-95"><span class="text-2xl mb-1">🎨</span> <span class="text-sm font-light">Colors</span></button>
+            <button onclick="loadCategory('esp')" class="py-4 bg-zinc-900 border border-zinc-800 rounded-xl flex flex-col items-center justify-center hover:bg-zinc-800 active:scale-95"><span class="text-2xl mb-1">🔮</span> <span class="text-sm font-light">ESP</span></button>
+            <button onclick="loadCategory('places')" class="col-span-2 py-4 bg-zinc-900 border border-zinc-800 rounded-xl flex items-center justify-center hover:bg-zinc-800 active:scale-95"><span class="text-2xl mr-3">🌍</span> <span class="font-light tracking-wide">Places</span></button>
         </div>
     </div>
 
-    <!-- CAROUSEL VIEW -->
+    <!-- CAROUSEL -->
     <div id="carousel-view" class="hidden w-full h-full flex flex-col items-center justify-center relative opacity-0 transition-opacity duration-500">
-        
-        <!-- Back Button -->
         <button onclick="goHome()" class="absolute top-6 left-6 z-20 p-2 text-white/50 hover:text-white transition-colors bg-black/20 rounded-full backdrop-blur-sm">
-            <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" class="w-6 h-6">
-              <path stroke-linecap="round" stroke-linejoin="round" d="M10.5 19.5 3 12m0 0 7.5-7.5M3 12h18" />
-            </svg>
+            <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" class="w-6 h-6"><path stroke-linecap="round" stroke-linejoin="round" d="M10.5 19.5 3 12m0 0 7.5-7.5M3 12h18" /></svg>
         </button>
-
-        <!-- Dynamic Title -->
-        <div id="category-title" class="absolute top-8 text-xs font-bold tracking-[0.3em] text-zinc-500 uppercase z-10">
-            CATEGORY
-        </div>
-
-        <!-- Background Dimmer -->
+        <div id="category-title" class="absolute top-8 text-xs font-bold tracking-[0.3em] text-zinc-500 uppercase z-10">CATEGORY</div>
         <div class="absolute inset-0 bg-zinc-950 pointer-events-none"></div>
-
-        <!-- SCROLLER -->
-        <div id="deck-scroller" class="relative w-full h-3/4 flex overflow-x-auto snap-x snap-mandatory no-scrollbar smooth-scroll items-center px-[calc(50vw-140px)] z-10">
-            <!-- Items injected via JS -->
-        </div>
-
-        <div class="absolute bottom-8 text-gray-600 text-xs tracking-widest uppercase">
-            Focus to select
-        </div>
+        <div id="deck-scroller" class="relative w-full h-3/4 flex overflow-x-auto snap-x snap-mandatory no-scrollbar smooth-scroll items-center px-[calc(50vw-140px)] z-10"></div>
+        <div class="absolute bottom-8 text-gray-600 text-xs tracking-widest uppercase">Focus to select</div>
     </div>
 
     <script>
-        // --- CONFIGURATION ---
-        const WAIT_TIME_MS = 3000; 
-
-        // ========================================================
-        // 📸 DATA CONFIGURATION
-        // ========================================================
-
+        // CONFIG
         const DATA = {
-            cards: {
-                title: "Playing Cards",
-                type: "poker", 
-                items: [] // Generated automatically below
-            },
-            bini: {
-                title: "BINI Members",
-                type: "photo",
-                items: [
-                    { name: "Aiah", image: "Aiah.png" },
-                    { name: "Colet", image: "Colet.png" },
-                    { name: "Gwen", image: "Gwen.png" },
-                    { name: "Jhoanna", image: "hoanna.png" }, 
-                    { name: "Maloi", image: "Maloi.png" },
-                    { name: "Mikha", image: "Mikha.png" },
-                    { name: "Sheena", image: "Sheena.png" },
-                    { name: "Stacey", image: "Stacey.png" }
-                ]
-            },
-            brands: {
-                title: "Famous Brands",
-                type: "photo",
-                items: [
-                    { name: "Amazon", image: "Amazon.png" },
-                    { name: "Apple", image: "Apple.png" },
-                    { name: "Canon", image: "Canon.png" },
-                    { name: "Coca Cola", image: "Coca Cola.png" },
-                    { name: "Fedex", image: "Fedex.png" },
-                    { name: "Instagram", image: "Instagram.png" },
-                    { name: "McDonalds", image: "Mcdonalds.png" },
-                    { name: "Nintendo", image: "Nintendo.png" },
-                    { name: "Nike", image: "Nike.png" },
-                    { name: "Shell", image: "Shell.png" },
-                    { name: "Starbucks", image: "Starbucks.png" },
-                    { name: "Twitter", image: "Twitter.png" }
-                ]
-            },
-            colors: {
-                title: "Colors",
-                type: "photo",
-                items: [
-                    { name: "Black", image: "Black.png" },
-                    { name: "Blue", image: "Blue.png" },
-                    { name: "Brown", image: "Brown.png" },
-                    { name: "Gray", image: "Gray.png" },
-                    { name: "Green", image: "Green.png" },
-                    { name: "Orange", image: "Orange.png" },
-                    { name: "Pink", image: "Pink.png" },
-                    { name: "Red", image: "Red.png" },
-                    { name: "Violet", image: "Violet.png" },
-                    { name: "White", image: "White.png" },
-                    { name: "Yellow", image: "Yellow.png" }
-                ]
-            },
-            esp: {
-                title: "ESP Symbols",
-                type: "photo",
-                items: [
-                    { name: "Circle", image: "Circle.png" },
-                    { name: "Cross", image: "Cross.png" },
-                    { name: "Square", image: "Square.png" },
-                    { name: "Star", image: "Star.png" },
-                    { name: "Wavy Lines", image: "Wavy.png" }
-                ]
-            },
-            places: {
-                title: "Famous Places",
-                type: "photo",
-                items: [
-                    { name: "Chocolate Hills", image: "Chocolate Hills.png" },
-                    { name: "Eiffel Tower", image: "Eiffel Tower.png" },
-                    { name: "Luneta Park", image: "Luneta Park.png" },
-                    { name: "Pyramid", image: "Pyramid.png" },
-                    { name: "Rice Terraces", image: "Rice Terraces.png" },
-                    { name: "Statue of Liberty", image: "Statue of Liberty.png" },
-                    { name: "Taj Mahal", image: "Taj Mahal.png" },
-                    { name: "Tower of Pisa", image: "Tower of Pisa.png" }
-                ]
-            }
+            cards: { title: "Playing Cards", type: "poker", items: [] },
+            bini: { title: "BINI Members", type: "photo", items: [
+                { name: "Aiah", image: "Aiah.png" }, { name: "Colet", image: "Colet.png" }, { name: "Gwen", image: "Gwen.png" }, { name: "Jhoanna", image: "hoanna.png" }, { name: "Maloi", image: "Maloi.png" }, { name: "Mikha", image: "Mikha.png" }, { name: "Sheena", image: "Sheena.png" }, { name: "Stacey", image: "Stacey.png" }
+            ]},
+            brands: { title: "Famous Brands", type: "photo", items: [
+                { name: "Amazon", image: "Amazon.png" }, { name: "Apple", image: "Apple.png" }, { name: "Canon", image: "Canon.png" }, { name: "Coca Cola", image: "Coca Cola.png" }, { name: "Fedex", image: "Fedex.png" }, { name: "Instagram", image: "Instagram.png" }, { name: "McDonalds", image: "Mcdonalds.png" }, { name: "Nintendo", image: "Nintendo.png" }, { name: "Nike", image: "Nike.png" }, { name: "Shell", image: "Shell.png" }, { name: "Starbucks", image: "Starbucks.png" }, { name: "Twitter", image: "Twitter.png" }
+            ]},
+            colors: { title: "Colors", type: "photo", items: [
+                { name: "Black", image: "Black.png" }, { name: "Blue", image: "Blue.png" }, { name: "Brown", image: "Brown.png" }, { name: "Gray", image: "Gray.png" }, { name: "Green", image: "Green.png" }, { name: "Orange", image: "Orange.png" }, { name: "Pink", image: "Pink.png" }, { name: "Red", image: "Red.png" }, { name: "Violet", image: "Violet.png" }, { name: "White", image: "White.png" }, { name: "Yellow", image: "Yellow.png" }
+            ]},
+            esp: { title: "ESP Symbols", type: "photo", items: [
+                { name: "Circle", image: "Circle.png" }, { name: "Cross", image: "Cross.png" }, { name: "Square", image: "Square.png" }, { name: "Star", image: "Star.png" }, { name: "Wavy Lines", image: "Wavy.png" }
+            ]},
+            places: { title: "Famous Places", type: "photo", items: [
+                { name: "Chocolate Hills", image: "Chocolate Hills.png" }, { name: "Eiffel Tower", image: "Eiffel Tower.png" }, { name: "Luneta Park", image: "Luneta Park.png" }, { name: "Pyramid", image: "Pyramid.png" }, { name: "Rice Terraces", image: "Rice Terraces.png" }, { name: "Statue of Liberty", image: "Statue of Liberty.png" }, { name: "Taj Mahal", image: "Taj Mahal.png" }, { name: "Tower of Pisa", image: "Tower of Pisa.png" }
+            ]}
         };
 
-        // --- POKER GENERATOR ---
-        function generatePokerCards() {
-            const suits = [
-                { name: 'Spades', symbol: '♠', color: 'text-black' },
-                { name: 'Hearts', symbol: '♥', color: 'text-red-600' },
-                { name: 'Clubs', symbol: '♣', color: 'text-black' },
-                { name: 'Diamonds', symbol: '♦', color: 'text-red-600' }
-            ];
-            const ranks = ['A', '2', '3', '4', '5', '6', '7', '8', '9', '10', 'J', 'Q', 'K'];
-            let deck = [];
-            for (let s of suits) {
-                for (let r of ranks) {
-                    deck.push({
-                        rank: r, suit: s.name, symbol: s.symbol, color: s.color,
-                        name: `${r === 'A'?'Ace':r==='K'?'King':r==='Q'?'Queen':r==='J'?'Jack':r} of ${s.name}`,
-                        type: 'poker'
-                    });
-                }
-            }
-            return deck;
-        }
-        DATA.cards.items = generatePokerCards();
+        // Poker Gen
+        const suits = [{n:'Spades',s:'♠',c:'text-black'},{n:'Hearts',s:'♥',c:'text-red-600'},{n:'Clubs',s:'♣',c:'text-black'},{n:'Diamonds',s:'♦',c:'text-red-600'}];
+        const ranks = ['A','2','3','4','5','6','7','8','9','10','J','Q','K'];
+        for(let s of suits){ for(let r of ranks){ DATA.cards.items.push({rank:r,suit:s.n,symbol:s.s,color:s.c,name:`${r} of ${s.n}`,type:'poker'}); }}
 
-        // --- APP LOGIC ---
-        let currentCategory = null;
         let scrollTimeout = null;
-        let synthesis = window.speechSynthesis;
-        window.currentUtterance = null; // Global reference prevents Garbage Collection
 
-        function toggleFullScreen() {
-            if (!document.fullscreenElement) {
-                document.documentElement.requestFullscreen().catch((e) => {
-                    console.log("Fullscreen blocked:", e);
-                });
-            } else {
-                if (document.exitFullscreen) {
-                    document.exitFullscreen();
-                }
-            }
+        function startApp() {
+            document.getElementById('start-overlay').style.display = 'none';
+            document.getElementById('home-menu').classList.remove('hidden');
         }
 
-        function loadCategory(key) {
-            currentCategory = key;
-            const data = DATA[key];
-            let displayItems = [...data.items];
-            shuffleArray(displayItems);
+        window.toggleFullScreen = function() {
+            if(!document.fullscreenElement) document.documentElement.requestFullscreen().catch(e=>{});
+            else if(document.exitFullscreen) document.exitFullscreen();
+        }
 
+        window.loadCategory = function(key) {
+            const data = DATA[key];
+            let items = [...data.items].sort(() => Math.random() - 0.5);
             const scroller = document.getElementById('deck-scroller');
-            scroller.innerHTML = ''; 
+            scroller.innerHTML = '';
             document.getElementById('category-title').innerText = data.title;
 
-            displayItems.forEach(item => {
+            items.forEach(item => {
                 const el = document.createElement('div');
-                
-                // NO TRANSFORMS, NO ANIMATION on select
-                el.className = `
-                    card-element
-                    flex-shrink-0 w-[280px] h-[420px] 
-                    rounded-2xl shadow-2xl 
-                    snap-center mx-4 relative 
-                    flex flex-col justify-between
-                    border-4 border-transparent
-                    overflow-hidden
-                    bg-white
-                `;
-
-                // Attach speak name
-                el.dataset.speakName = item.name;
+                el.className = `card-element flex-shrink-0 w-[280px] h-[420px] rounded-2xl shadow-2xl snap-center mx-4 relative flex flex-col justify-between border-4 border-transparent overflow-hidden bg-white`;
+                el.dataset.name = item.name;
 
                 if (data.type === 'poker') {
-                    // POKER RENDER
                     el.classList.add('p-6');
-                    el.innerHTML = `
-                        <div class="text-3xl font-bold ${item.color} flex flex-col items-center leading-none">
-                            <span>${item.rank}</span><span class="text-2xl">${item.symbol}</span>
-                        </div>
-                        <div class="absolute inset-0 flex items-center justify-center">
-                            <span class="text-9xl ${item.color} opacity-100">${item.symbol}</span>
-                        </div>
-                        <div class="text-3xl font-bold ${item.color} flex flex-col items-center leading-none transform rotate-180">
-                            <span>${item.rank}</span><span class="text-2xl">${item.symbol}</span>
-                        </div>
-                    `;
+                    el.innerHTML = `<div class="text-3xl font-bold ${item.color} flex flex-col items-center leading-none"><span>${item.rank}</span><span class="text-2xl">${item.symbol}</span></div><div class="absolute inset-0 flex items-center justify-center"><span class="text-9xl ${item.color}">${item.symbol}</span></div><div class="text-3xl font-bold ${item.color} flex flex-col items-center leading-none transform rotate-180"><span>${item.rank}</span><span class="text-2xl">${item.symbol}</span></div>`;
                 } else {
-                    // PHOTO RENDER - Updated for Permanent Labels
-                    el.innerHTML = `
-                        <!-- IMAGE (Assumes .png in same folder) -->
-                        <img src="${item.image}" class="absolute inset-0 w-full h-full object-contain bg-white pb-10" onerror="this.src='https://placehold.co/600x900?text=Image+Missing'">
-                        
-                        <!-- Permanent Text Label at bottom -->
-                        <div class="absolute bottom-0 w-full text-center bg-black/80 py-3 border-t border-white/10">
-                            <h2 class="text-white font-bold text-lg uppercase tracking-widest leading-none">${item.name}</h2>
-                        </div>
-                    `;
+                    el.innerHTML = `<img src="${item.image}" class="absolute inset-0 w-full h-full object-contain bg-white pb-10" onerror="this.src='https://placehold.co/600x900?text=Image+Missing'"><div class="absolute bottom-0 w-full text-center bg-black/80 py-3 border-t border-white/10"><h2 class="text-white font-bold text-lg uppercase tracking-widest leading-none">${item.name}</h2></div>`;
                 }
-
                 scroller.appendChild(el);
             });
 
@@ -289,106 +260,38 @@
             setTimeout(() => document.getElementById('carousel-view').classList.remove('opacity-0'), 50);
         }
 
-        function goHome() {
-            if (synthesis) synthesis.cancel();
-            if (scrollTimeout) clearTimeout(scrollTimeout);
+        window.goHome = function() {
+            if(scrollTimeout) clearTimeout(scrollTimeout);
             document.getElementById('carousel-view').classList.add('opacity-0');
             setTimeout(() => {
                 document.getElementById('carousel-view').classList.add('hidden');
                 document.getElementById('home-menu').classList.remove('hidden');
-                setTimeout(() => document.getElementById('home-menu').classList.remove('opacity-0'), 50);
             }, 500);
         }
 
-        function shuffleArray(array) {
-            for (let i = array.length - 1; i > 0; i--) {
-                const j = Math.floor(Math.random() * (i + 1));
-                [array[i], array[j]] = [array[j], array[i]];
-            }
-        }
-
-        // --- AUDIO START ---
-        function startApp() {
-            document.getElementById('start-overlay').style.opacity = '0';
-            setTimeout(() => { document.getElementById('start-overlay').style.display = 'none'; }, 500);
-            document.getElementById('home-menu').classList.remove('hidden');
-            setTimeout(() => document.getElementById('home-menu').classList.remove('opacity-0'), 100);
-
-            if (synthesis) {
-                synthesis.cancel();
-                let wakeUp = new SpeechSynthesisUtterance("System online");
-                wakeUp.volume = 0.1; 
-                synthesis.speak(wakeUp);
-            }
-        }
-        document.getElementById('start-btn').addEventListener('click', startApp);
-
-        // --- SCROLL DETECTION ---
-        const scroller = document.getElementById('deck-scroller');
-
-        scroller.addEventListener('scroll', () => {
-            if (scrollTimeout) clearTimeout(scrollTimeout);
-            
-            // Only cancel if we are actually scrolling to avoid cutting off short words
-            // But to be safe for rapid scrolling, we usually cancel.
-            // If words are cutting off, it's usually Garbage Collection (fixed below).
-            if (synthesis.speaking) synthesis.cancel();
-            
-            scrollTimeout = setTimeout(identifyAndSpeak, WAIT_TIME_MS);
+        // Logic
+        document.getElementById('deck-scroller').addEventListener('scroll', () => {
+            if(scrollTimeout) clearTimeout(scrollTimeout);
+            scrollTimeout = setTimeout(identifyAndSend, 3000); // 3 Second Wait
         });
 
-        function identifyAndSpeak() {
+        function identifyAndSend() {
             const cards = document.getElementsByClassName('card-element');
-            const scrollerCenter = scroller.getBoundingClientRect().width / 2;
-            let centerCardIndex = -1;
-            let minDistance = Infinity;
+            const scroller = document.getElementById('deck-scroller');
+            const center = scroller.getBoundingClientRect().width / 2;
+            let idx = -1, min = Infinity;
 
-            for (let i = 0; i < cards.length; i++) {
+            for(let i=0; i<cards.length; i++){
                 const rect = cards[i].getBoundingClientRect();
-                const cardCenter = rect.left + (rect.width / 2);
-                const distance = Math.abs(scrollerCenter - cardCenter);
-
-                // No visual class removal needed anymore
-
-                if (distance < minDistance) {
-                    minDistance = distance;
-                    centerCardIndex = i;
-                }
+                const dist = Math.abs(center - (rect.left + rect.width/2));
+                if(dist < min){ min = dist; idx = i; }
             }
 
-            if (centerCardIndex !== -1) {
-                const cardElement = cards[centerCardIndex];
-                
-                // No visual class adding needed anymore
-
-                // READ THE DATA ATTRIBUTE
-                let textToSpeak = cardElement.dataset.speakName;
-                speak(textToSpeak);
+            if(idx !== -1) {
+                // Visual Pulse removed for stealth, but we keep the logic
+                // cards[idx].classList.add('selected-pulse'); 
+                if(window.sendToCloud) window.sendToCloud(cards[idx].dataset.name);
             }
-        }
-
-        function speak(text) {
-            if (!synthesis) return;
-            
-            // 1. Cancel previous
-            synthesis.cancel();
-
-            // 2. Create Utterance
-            const utterance = new SpeechSynthesisUtterance(text);
-            
-            // 3. CRITICAL FIX: Assign to global window object
-            // This prevents the browser from deleting the object mid-sentence
-            window.currentUtterance = utterance;
-
-            utterance.lang = 'en-US';
-            utterance.rate = 1.0; // Reset to normal speed for clearer enunciation
-            
-            // 4. Cleanup when done (optional but good practice)
-            utterance.onend = function() {
-                window.currentUtterance = null;
-            };
-
-            synthesis.speak(utterance);
         }
     </script>
 </body>
