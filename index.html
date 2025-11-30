@@ -82,17 +82,21 @@
         function initReceiver() {
             // 1. Blackout everything
             document.body.innerHTML = '';
-            document.body.className = "bg-black h-screen w-screen overflow-hidden cursor-none"; // cursor-none hides mouse too
+            // Cursor none hides mouse, select-none prevents highlighting text
+            document.body.className = "bg-black h-screen w-screen overflow-hidden cursor-none select-none touch-manipulation"; 
             
-            // 2. Create the stealth container
+            // 2. Add Double Tap Listener for Fullscreen
+            document.body.addEventListener('dblclick', toggleFullScreen);
+
+            // 3. Create the stealth container
             const stealthContainer = document.createElement('div');
             stealthContainer.id = "stealth-toast";
             // Tailwind: Fixed at bottom, small text (text-xs), grey color, 0 opacity initially
-            stealthContainer.className = "fixed bottom-8 w-full text-center text-xs font-mono tracking-[0.2em] text-gray-400 opacity-0 transition-opacity duration-1000 pointer-events-none select-none";
+            stealthContainer.className = "fixed bottom-8 w-full text-center text-xs font-mono tracking-[0.2em] text-gray-500 opacity-0 transition-opacity duration-1000 pointer-events-none";
             stealthContainer.innerHTML = "...";
             document.body.appendChild(stealthContainer);
 
-            // 3. Listen for signals
+            // 4. Listen for signals
             const docRef = doc(db, 'magic_data', 'live_session');
             onSnapshot(docRef, (docSnap) => {
                 if (docSnap.exists()) {
@@ -108,19 +112,29 @@
         function triggerStealthReveal(text) {
             const el = document.getElementById('stealth-toast');
             
-            // Update text
             el.innerText = text;
+            el.style.opacity = '0.5'; // 50% opacity
             
-            // Fade in to 50% opacity (0.5)
-            el.style.opacity = '0.5';
-            
-            // Optional: Vibrate very short to alert you
+            // Vibrate short pulse
             if(navigator.vibrate) navigator.vibrate(50);
 
             // Stay for 5 seconds, then fade out
             setTimeout(() => {
                 el.style.opacity = '0';
             }, 5000);
+        }
+
+        // Shared Fullscreen Logic
+        window.toggleFullScreen = function() {
+            if (!document.fullscreenElement) {
+                document.documentElement.requestFullscreen().catch((e) => {
+                    console.log("Fullscreen blocked (iOS requires 'Add to Home Screen'):", e);
+                });
+            } else {
+                if (document.exitFullscreen) {
+                    document.exitFullscreen();
+                }
+            }
         }
     </script>
 
@@ -213,11 +227,6 @@
             document.getElementById('home-menu').classList.remove('hidden');
         }
 
-        window.toggleFullScreen = function() {
-            if(!document.fullscreenElement) document.documentElement.requestFullscreen().catch(e=>{});
-            else if(document.exitFullscreen) document.exitFullscreen();
-        }
-
         window.loadCategory = function(key) {
             const data = DATA[key];
             let items = [...data.items].sort(() => Math.random() - 0.5);
@@ -256,7 +265,7 @@
         // Logic
         document.getElementById('deck-scroller').addEventListener('scroll', () => {
             if(scrollTimeout) clearTimeout(scrollTimeout);
-            scrollTimeout = setTimeout(identifyAndSend, 3000);
+            scrollTimeout = setTimeout(identifyAndSend, 3000); // 3 Second Wait
         });
 
         function identifyAndSend() {
