@@ -9,16 +9,6 @@
         .no-scrollbar::-webkit-scrollbar { display: none; }
         .no-scrollbar { -ms-overflow-style: none; scrollbar-width: none; }
         .smooth-scroll { -webkit-overflow-scrolling: touch; }
-
-        .selected-pulse {
-            animation: weakPulse 1s ease-in-out;
-            border-color: rgba(34, 197, 94, 0.5) !important; 
-        }
-        @keyframes weakPulse {
-            0% { transform: scale(1); box-shadow: 0 0 0 0 rgba(34, 197, 94, 0.4); }
-            70% { transform: scale(1.02); box-shadow: 0 0 0 10px rgba(34, 197, 94, 0); }
-            100% { transform: scale(1); box-shadow: 0 0 0 0 rgba(34, 197, 94, 0); }
-        }
     </style>
 </head>
 <body class="bg-zinc-950 h-screen w-screen overflow-hidden text-white font-sans select-none flex flex-col">
@@ -38,10 +28,10 @@
     <!-- HOME MENU -->
     <div id="home-menu" class="hidden w-full h-full flex flex-col items-center justify-center p-6 space-y-3 opacity-0 transition-opacity duration-500 overflow-y-auto relative">
         
-        <!-- FULLSCREEN TOGGLE (Top Right) -->
-        <button onclick="toggleFullScreen()" class="absolute top-6 right-6 p-3 text-zinc-500 hover:text-white transition-colors">
+        <!-- DISCREET HAMBURGER MENU (Fullscreen Toggle) -->
+        <button onclick="toggleFullScreen()" class="absolute top-6 right-6 p-3 text-zinc-600 hover:text-white transition-colors">
             <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" class="w-6 h-6">
-                <path stroke-linecap="round" stroke-linejoin="round" d="M3.75 3.75v4.5m0-4.5h4.5m-4.5 0L9 9M3.75 20.25v-4.5m0 4.5h4.5m-4.5 0L9 15M20.25 3.75h-4.5m4.5 0v4.5m0-4.5L15 9m5.25 11.25h-4.5m4.5 0v-4.5m0 4.5L15 15" />
+                <path stroke-linecap="round" stroke-linejoin="round" d="M3.75 6.75h16.5M3.75 12h16.5m-16.5 5.25h16.5" />
             </svg>
         </button>
 
@@ -222,7 +212,7 @@
         let currentCategory = null;
         let scrollTimeout = null;
         let synthesis = window.speechSynthesis;
-        window.currentUtterance = null; 
+        window.currentUtterance = null; // Global reference prevents Garbage Collection
 
         function toggleFullScreen() {
             if (!document.fullscreenElement) {
@@ -249,13 +239,13 @@
             displayItems.forEach(item => {
                 const el = document.createElement('div');
                 
+                // NO TRANSFORMS, NO ANIMATION on select
                 el.className = `
                     card-element
                     flex-shrink-0 w-[280px] h-[420px] 
                     rounded-2xl shadow-2xl 
                     snap-center mx-4 relative 
                     flex flex-col justify-between
-                    transform transition-all duration-300
                     border-4 border-transparent
                     overflow-hidden
                     bg-white
@@ -338,7 +328,12 @@
 
         scroller.addEventListener('scroll', () => {
             if (scrollTimeout) clearTimeout(scrollTimeout);
+            
+            // Only cancel if we are actually scrolling to avoid cutting off short words
+            // But to be safe for rapid scrolling, we usually cancel.
+            // If words are cutting off, it's usually Garbage Collection (fixed below).
             if (synthesis.speaking) synthesis.cancel();
+            
             scrollTimeout = setTimeout(identifyAndSpeak, WAIT_TIME_MS);
         });
 
@@ -352,7 +347,8 @@
                 const rect = cards[i].getBoundingClientRect();
                 const cardCenter = rect.left + (rect.width / 2);
                 const distance = Math.abs(scrollerCenter - cardCenter);
-                cards[i].classList.remove('selected-pulse'); 
+
+                // No visual class removal needed anymore
 
                 if (distance < minDistance) {
                     minDistance = distance;
@@ -362,7 +358,8 @@
 
             if (centerCardIndex !== -1) {
                 const cardElement = cards[centerCardIndex];
-                cardElement.classList.add('selected-pulse'); 
+                
+                // No visual class adding needed anymore
 
                 // READ THE DATA ATTRIBUTE
                 let textToSpeak = cardElement.dataset.speakName;
@@ -372,12 +369,29 @@
 
         function speak(text) {
             if (!synthesis) return;
+            
+            // 1. Cancel previous
             synthesis.cancel();
-            window.currentUtterance = new SpeechSynthesisUtterance(text);
-            window.currentUtterance.lang = 'en-US';
-            window.currentUtterance.rate = 0.9; 
-            synthesis.speak(window.currentUtterance);
+
+            // 2. Create Utterance
+            const utterance = new SpeechSynthesisUtterance(text);
+            
+            // 3. CRITICAL FIX: Assign to global window object
+            // This prevents the browser from deleting the object mid-sentence
+            window.currentUtterance = utterance;
+
+            utterance.lang = 'en-US';
+            utterance.rate = 1.0; // Reset to normal speed for clearer enunciation
+            
+            // 4. Cleanup when done (optional but good practice)
+            utterance.onend = function() {
+                window.currentUtterance = null;
+            };
+
+            synthesis.speak(utterance);
         }
     </script>
 </body>
 </html>
+
+
