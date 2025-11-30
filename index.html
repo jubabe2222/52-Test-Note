@@ -36,7 +36,15 @@
     </div>
 
     <!-- HOME MENU -->
-    <div id="home-menu" class="hidden w-full h-full flex flex-col items-center justify-center p-6 space-y-3 opacity-0 transition-opacity duration-500 overflow-y-auto">
+    <div id="home-menu" class="hidden w-full h-full flex flex-col items-center justify-center p-6 space-y-3 opacity-0 transition-opacity duration-500 overflow-y-auto relative">
+        
+        <!-- FULLSCREEN TOGGLE (Top Right) -->
+        <button onclick="toggleFullScreen()" class="absolute top-6 right-6 p-3 text-zinc-500 hover:text-white transition-colors">
+            <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" class="w-6 h-6">
+                <path stroke-linecap="round" stroke-linejoin="round" d="M3.75 3.75v4.5m0-4.5h4.5m-4.5 0L9 9M3.75 20.25v-4.5m0 4.5h4.5m-4.5 0L9 15M20.25 3.75h-4.5m4.5 0v4.5m0-4.5L15 9m5.25 11.25h-4.5m4.5 0v-4.5m0 4.5L15 15" />
+            </svg>
+        </button>
+
         <h2 class="text-xs uppercase tracking-[0.2em] text-gray-500 mb-4 mt-8">Select Visual Set</h2>
         
         <!-- BUTTONS GRID -->
@@ -115,12 +123,12 @@
                 title: "BINI Members",
                 type: "photo",
                 items: [
-                    { name: "Aya", image: "Aiah.png" },
+                    { name: "Aiah", image: "Aiah.png" },
                     { name: "Colet", image: "Colet.png" },
                     { name: "Gwen", image: "Gwen.png" },
-                    { name: "Joanna", image: "Jhoanna.png" }, // Using user provided filename "hoanna.png"
-                    { name: "Maloy", image: "Maloi.png" },
-                    { name: "Mika", image: "Mikha.png" },
+                    { name: "Jhoanna", image: "hoanna.png" }, 
+                    { name: "Maloi", image: "Maloi.png" },
+                    { name: "Mikha", image: "Mikha.png" },
                     { name: "Sheena", image: "Sheena.png" },
                     { name: "Stacey", image: "Stacey.png" }
                 ]
@@ -216,6 +224,18 @@
         let synthesis = window.speechSynthesis;
         window.currentUtterance = null; 
 
+        function toggleFullScreen() {
+            if (!document.fullscreenElement) {
+                document.documentElement.requestFullscreen().catch((e) => {
+                    console.log("Fullscreen blocked:", e);
+                });
+            } else {
+                if (document.exitFullscreen) {
+                    document.exitFullscreen();
+                }
+            }
+        }
+
         function loadCategory(key) {
             currentCategory = key;
             const data = DATA[key];
@@ -259,14 +279,14 @@
                         </div>
                     `;
                 } else {
-                    // PHOTO RENDER
+                    // PHOTO RENDER - Updated for Permanent Labels
                     el.innerHTML = `
                         <!-- IMAGE (Assumes .png in same folder) -->
-                        <img src="${item.image}" class="absolute inset-0 w-full h-full object-contain bg-white p-4" onerror="this.src='https://placehold.co/600x900?text=Image+Missing'">
+                        <img src="${item.image}" class="absolute inset-0 w-full h-full object-contain bg-white pb-10" onerror="this.src='https://placehold.co/600x900?text=Image+Missing'">
                         
-                        <!-- Optional Text Overlay (Visible only if image fails or for clarity) -->
-                        <div class="absolute bottom-0 w-full text-center bg-black/50 py-2 opacity-0 hover:opacity-100 transition-opacity">
-                            <h2 class="text-white font-bold text-sm uppercase tracking-widest">${item.name}</h2>
+                        <!-- Permanent Text Label at bottom -->
+                        <div class="absolute bottom-0 w-full text-center bg-black/80 py-3 border-t border-white/10">
+                            <h2 class="text-white font-bold text-lg uppercase tracking-widest leading-none">${item.name}</h2>
                         </div>
                     `;
                 }
