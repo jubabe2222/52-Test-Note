@@ -3,262 +3,327 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-    <title>Magic Deck</title>
+    <title>Visual Mind Reader</title>
     <script src="https://cdn.tailwindcss.com"></script>
-    
-    <!-- Firebase SDKs -->
-    <script type="module">
-        import { initializeApp } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-app.js";
-        import { getAuth, signInAnonymously, onAuthStateChanged, signInWithCustomToken } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-auth.js";
-        import { getFirestore, doc, onSnapshot, setDoc, collection } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-firestore.js";
-
-        // --- FIREBASE SETUP ---
-        // The environment provides these variables automatically.
-        const firebaseConfig = JSON.parse(__firebase_config);
-        const app = initializeApp(firebaseConfig);
-        const auth = getAuth(app);
-        const db = getFirestore(app);
-        const appId = typeof __app_id !== 'undefined' ? __app_id : 'default-app-id';
-
-        // Global state
-        let user = null;
-        let isReceiver = false;
-        let lastTimestamp = Date.now(); // Ignore old signals
-
-        // --- AUTH & ROUTING ---
-        async function initAuth() {
-            if (typeof __initial_auth_token !== 'undefined' && __initial_auth_token) {
-                await signInWithCustomToken(auth, __initial_auth_token);
-            } else {
-                await signInAnonymously(auth);
-            }
-        }
-
-        onAuthStateChanged(auth, (u) => {
-            if (u) {
-                user = u;
-                checkMode();
-            }
-        });
-
-        initAuth();
-
-        // --- MODES ---
-        function checkMode() {
-            const urlParams = new URLSearchParams(window.location.search);
-            if (urlParams.get('mode') === 'receiver') {
-                isReceiver = true;
-                initReceiver();
-            } else {
-                initSpectator();
-            }
-        }
-
-        // ==========================================
-        //  SPECTATOR MODE (THE DECK)
-        // ==========================================
-        function initSpectator() {
-            document.getElementById('spectator-view').classList.remove('hidden');
-            createDeck();
-            renderDeck();
-        }
-
-        // Logic to send data to Firebase
-        window.sendSelectionToCloud = async function(cardName) {
-            if (!user) return;
-            
-            // We use a public path so the receiver can read it easily
-            // In a real app, you might use a specific 'room code' logic
-            const docRef = doc(db, 'artifacts', appId, 'public', 'data', 'magic_card_selection');
-            
-            try {
-                await setDoc(docRef, {
-                    card: cardName,
-                    timestamp: Date.now()
-                });
-                console.log("Sent to cloud:", cardName);
-                
-                // Visual feedback (Green pulse)
-                const activeCard = document.querySelector('.snap-center.selected-pulse-target');
-                if(activeCard) {
-                    activeCard.classList.add('selected-pulse');
-                    setTimeout(() => activeCard.classList.remove('selected-pulse'), 1000);
-                }
-
-            } catch (e) {
-                console.error("Error sending selection:", e);
-            }
-        }
-
-        // ==========================================
-        //  RECEIVER MODE (YOUR EARBUDS)
-        // ==========================================
-        function initReceiver() {
-            document.getElementById('receiver-view').classList.remove('hidden');
-            
-            const statusEl = document.getElementById('receiver-status');
-            
-            // Listen to Firebase
-            const docRef = doc(db, 'artifacts', appId, 'public', 'data', 'magic_card_selection');
-            
-            onSnapshot(docRef, (docSnap) => {
-                if (docSnap.exists()) {
-                    const data = docSnap.data();
-                    
-                    // Only speak if this is a NEW selection (newer than when we loaded the page)
-                    if (data.timestamp > lastTimestamp) {
-                        lastTimestamp = data.timestamp;
-                        statusEl.innerText = `Received: ${data.card}`;
-                        statusEl.classList.add('text-green-500');
-                        speak(data.card);
-                        setTimeout(() => statusEl.classList.remove('text-green-500'), 2000);
-                    }
-                }
-            }, (error) => {
-                console.error("Listen error:", error);
-            });
-        }
-
-        // --- AUDIO ENGINE (Receiver Only) ---
-        let synthesis = window.speechSynthesis;
-        
-        window.activateAudio = function() {
-            if (synthesis) {
-                synthesis.cancel();
-                let wakeUp = new SpeechSynthesisUtterance("Connected.");
-                synthesis.speak(wakeUp);
-                document.getElementById('receiver-btn').innerText = "Audio Active - Listening...";
-                document.getElementById('receiver-btn').classList.add('bg-green-700');
-            }
-        }
-
-        function speak(text) {
-            if (!synthesis) return;
-            synthesis.cancel();
-            const u = new SpeechSynthesisUtterance(text);
-            u.rate = 1.0; 
-            synthesis.speak(u);
-        }
-
-    </script>
-
     <style>
         .no-scrollbar::-webkit-scrollbar { display: none; }
         .no-scrollbar { -ms-overflow-style: none; scrollbar-width: none; }
-        .selected-pulse { animation: weakPulse 1s ease-in-out; border-color: rgba(34, 197, 94, 0.5) !important; }
+        .smooth-scroll { -webkit-overflow-scrolling: touch; }
+
+        .selected-pulse {
+            animation: weakPulse 1s ease-in-out;
+            border-color: rgba(34, 197, 94, 0.5) !important; 
+        }
         @keyframes weakPulse {
             0% { transform: scale(1); box-shadow: 0 0 0 0 rgba(34, 197, 94, 0.4); }
-            50% { transform: scale(1.02); }
+            70% { transform: scale(1.02); box-shadow: 0 0 0 10px rgba(34, 197, 94, 0); }
             100% { transform: scale(1); box-shadow: 0 0 0 0 rgba(34, 197, 94, 0); }
         }
     </style>
 </head>
-<body class="bg-black h-screen w-screen overflow-hidden text-white font-sans select-none">
+<body class="bg-zinc-950 h-screen w-screen overflow-hidden text-white font-sans select-none flex flex-col">
 
-    <!-- SPECTATOR VIEW -->
-    <div id="spectator-view" class="hidden w-full h-full relative flex flex-col items-center justify-center">
-        <!-- Start Overlay for Spectator -->
-        <div id="start-overlay" class="absolute inset-0 z-50 flex flex-col items-center justify-center bg-zinc-900 transition-opacity duration-500">
-            <div class="text-center p-6">
-                <div class="text-6xl mb-4">🂡</div>
-                <h1 class="text-2xl font-light tracking-widest uppercase mb-8 text-gray-400">Card Selector</h1>
-                <button onclick="startSpectatorApp()" class="px-8 py-3 border border-gray-600 rounded-full text-sm tracking-widest hover:bg-gray-800 transition-colors">
-                    OPEN DECK
-                </button>
-            </div>
-        </div>
-
-        <div id="deck-ui" class="opacity-0 transition-opacity duration-1000 w-full h-full flex flex-col items-center justify-center relative">
-            <div class="absolute inset-0 bg-[radial-gradient(circle_at_center,_var(--tw-gradient-stops))] from-zinc-800 to-black pointer-events-none"></div>
-            
-            <div id="deck-scroller" class="relative w-full h-3/4 flex overflow-x-auto snap-x snap-mandatory no-scrollbar items-center px-[calc(50vw-140px)]">
-                <!-- Cards injected here -->
-            </div>
-            
-            <div class="absolute bottom-8 text-gray-600 text-xs tracking-widest uppercase">Swipe to select</div>
+    <!-- UNLOCK OVERLAY -->
+    <div id="start-overlay" class="absolute inset-0 z-50 flex flex-col items-center justify-center bg-black transition-opacity duration-500">
+        <div class="text-center p-6">
+            <div class="text-6xl mb-6">👁️</div>
+            <h1 class="text-2xl font-light tracking-widest uppercase mb-8 text-gray-400">Visual Suite</h1>
+            <button id="start-btn" class="px-8 py-3 border border-gray-600 rounded-full text-sm tracking-widest hover:bg-gray-800 transition-colors active:scale-95 cursor-pointer z-50">
+                INITIATE
+            </button>
+            <p class="mt-4 text-xs text-gray-500">Enable Ring Mode</p>
         </div>
     </div>
 
-    <!-- RECEIVER VIEW (YOU) -->
-    <div id="receiver-view" class="hidden w-full h-full flex flex-col items-center justify-center bg-black">
-        <h1 class="text-zinc-500 text-xl mb-4 tracking-widest">RECEIVER MODE</h1>
-        <div id="receiver-status" class="text-4xl font-bold text-white mb-8 text-center h-12">Waiting...</div>
-        <button id="receiver-btn" onclick="activateAudio()" class="px-6 py-4 bg-zinc-800 rounded text-sm uppercase tracking-widest border border-zinc-700">
-            Tap to Activate Audio
+    <!-- HOME MENU -->
+    <div id="home-menu" class="hidden w-full h-full flex flex-col items-center justify-center p-6 space-y-3 opacity-0 transition-opacity duration-500 overflow-y-auto">
+        <h2 class="text-xs uppercase tracking-[0.2em] text-gray-500 mb-4 mt-8">Select Visual Set</h2>
+        
+        <!-- BUTTONS GRID -->
+        <div class="grid grid-cols-2 gap-3 w-full max-w-sm pb-8">
+            
+            <button onclick="loadCategory('cards')" class="col-span-2 py-4 bg-zinc-900 border border-zinc-800 rounded-xl flex items-center justify-center hover:bg-zinc-800 active:scale-95">
+                <span class="text-2xl mr-3">🃏</span> <span class="font-light tracking-wide">Poker Deck</span>
+            </button>
+
+            <button onclick="loadCategory('bini')" class="py-4 bg-zinc-900 border border-zinc-800 rounded-xl flex flex-col items-center justify-center hover:bg-zinc-800 active:scale-95">
+                <span class="text-2xl mb-1">🌸</span> <span class="text-sm font-light">BINI</span>
+            </button>
+
+            <button onclick="loadCategory('brands')" class="py-4 bg-zinc-900 border border-zinc-800 rounded-xl flex flex-col items-center justify-center hover:bg-zinc-800 active:scale-95">
+                <span class="text-2xl mb-1">🏷️</span> <span class="text-sm font-light">Brands</span>
+            </button>
+
+            <button onclick="loadCategory('colors')" class="py-4 bg-zinc-900 border border-zinc-800 rounded-xl flex flex-col items-center justify-center hover:bg-zinc-800 active:scale-95">
+                <span class="text-2xl mb-1">🎨</span> <span class="text-sm font-light">Colors</span>
+            </button>
+
+            <button onclick="loadCategory('esp')" class="py-4 bg-zinc-900 border border-zinc-800 rounded-xl flex flex-col items-center justify-center hover:bg-zinc-800 active:scale-95">
+                <span class="text-2xl mb-1">🔮</span> <span class="text-sm font-light">ESP</span>
+            </button>
+
+            <button onclick="loadCategory('places')" class="col-span-2 py-4 bg-zinc-900 border border-zinc-800 rounded-xl flex items-center justify-center hover:bg-zinc-800 active:scale-95">
+                <span class="text-2xl mr-3">🌍</span> <span class="font-light tracking-wide">Places</span>
+            </button>
+
+        </div>
+    </div>
+
+    <!-- CAROUSEL VIEW -->
+    <div id="carousel-view" class="hidden w-full h-full flex flex-col items-center justify-center relative opacity-0 transition-opacity duration-500">
+        
+        <!-- Back Button -->
+        <button onclick="goHome()" class="absolute top-6 left-6 z-20 p-2 text-white/50 hover:text-white transition-colors bg-black/20 rounded-full backdrop-blur-sm">
+            <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" class="w-6 h-6">
+              <path stroke-linecap="round" stroke-linejoin="round" d="M10.5 19.5 3 12m0 0 7.5-7.5M3 12h18" />
+            </svg>
         </button>
-        <p class="mt-8 text-zinc-600 text-xs max-w-xs text-center">
-            Keep this screen open. When the spectator (on another device) picks a card, it will appear here and play via audio.
-        </p>
+
+        <!-- Dynamic Title -->
+        <div id="category-title" class="absolute top-8 text-xs font-bold tracking-[0.3em] text-zinc-500 uppercase z-10">
+            CATEGORY
+        </div>
+
+        <!-- Background Dimmer -->
+        <div class="absolute inset-0 bg-zinc-950 pointer-events-none"></div>
+
+        <!-- SCROLLER -->
+        <div id="deck-scroller" class="relative w-full h-3/4 flex overflow-x-auto snap-x snap-mandatory no-scrollbar smooth-scroll items-center px-[calc(50vw-140px)] z-10">
+            <!-- Items injected via JS -->
+        </div>
+
+        <div class="absolute bottom-8 text-gray-600 text-xs tracking-widest uppercase">
+            Focus to select
+        </div>
     </div>
 
-    <!-- JS LOGIC FOR DECK -->
     <script>
-        // DECK LOGIC (Pure JS, no Firebase needed here, handled by wrapper)
-        const suits = [
-            { name: 'Spades', symbol: '♠', color: 'text-black' },
-            { name: 'Hearts', symbol: '♥', color: 'text-red-600' },
-            { name: 'Clubs', symbol: '♣', color: 'text-black' },
-            { name: 'Diamonds', symbol: '♦', color: 'text-red-600' }
-        ];
-        const ranks = ['A', '2', '3', '4', '5', '6', '7', '8', '9', '10', 'J', 'Q', 'K'];
-        let deck = [];
-        let scrollTimeout = null;
+        // --- CONFIGURATION ---
+        const WAIT_TIME_MS = 3000; 
 
-        function createDeck() {
+        // ========================================================
+        // 📸 DATA CONFIGURATION
+        // ========================================================
+
+        const DATA = {
+            cards: {
+                title: "Playing Cards",
+                type: "poker", 
+                items: [] // Generated automatically below
+            },
+            bini: {
+                title: "BINI Members",
+                type: "photo",
+                items: [
+                    { name: "Aya", image: "Aiah.png" },
+                    { name: "Colet", image: "Colet.png" },
+                    { name: "Gwen", image: "Gwen.png" },
+                    { name: "Joanna", image: "Jhoanna.png" }, // Using user provided filename "hoanna.png"
+                    { name: "Maloy", image: "Maloi.png" },
+                    { name: "Mika", image: "Mikha.png" },
+                    { name: "Sheena", image: "Sheena.png" },
+                    { name: "Stacey", image: "Stacey.png" }
+                ]
+            },
+            brands: {
+                title: "Famous Brands",
+                type: "photo",
+                items: [
+                    { name: "Amazon", image: "Amazon.png" },
+                    { name: "Apple", image: "Apple.png" },
+                    { name: "Canon", image: "Canon.png" },
+                    { name: "Coca Cola", image: "Coca Cola.png" },
+                    { name: "Fedex", image: "Fedex.png" },
+                    { name: "Instagram", image: "Instagram.png" },
+                    { name: "McDonalds", image: "Mcdonalds.png" },
+                    { name: "Nintendo", image: "Nintendo.png" },
+                    { name: "Nike", image: "Nike.png" },
+                    { name: "Shell", image: "Shell.png" },
+                    { name: "Starbucks", image: "Starbucks.png" },
+                    { name: "Twitter", image: "Twitter.png" }
+                ]
+            },
+            colors: {
+                title: "Colors",
+                type: "photo",
+                items: [
+                    { name: "Black", image: "Black.png" },
+                    { name: "Blue", image: "Blue.png" },
+                    { name: "Brown", image: "Brown.png" },
+                    { name: "Gray", image: "Gray.png" },
+                    { name: "Green", image: "Green.png" },
+                    { name: "Orange", image: "Orange.png" },
+                    { name: "Pink", image: "Pink.png" },
+                    { name: "Red", image: "Red.png" },
+                    { name: "Violet", image: "Violet.png" },
+                    { name: "White", image: "White.png" },
+                    { name: "Yellow", image: "Yellow.png" }
+                ]
+            },
+            esp: {
+                title: "ESP Symbols",
+                type: "photo",
+                items: [
+                    { name: "Circle", image: "Circle.png" },
+                    { name: "Cross", image: "Cross.png" },
+                    { name: "Square", image: "Square.png" },
+                    { name: "Star", image: "Star.png" },
+                    { name: "Wavy Lines", image: "Wavy.png" }
+                ]
+            },
+            places: {
+                title: "Famous Places",
+                type: "photo",
+                items: [
+                    { name: "Chocolate Hills", image: "Chocolate Hills.png" },
+                    { name: "Eiffel Tower", image: "Eiffel Tower.png" },
+                    { name: "Luneta Park", image: "Luneta Park.png" },
+                    { name: "Pyramid", image: "Pyramid.png" },
+                    { name: "Rice Terraces", image: "Rice Terraces.png" },
+                    { name: "Statue of Liberty", image: "Statue of Liberty.png" },
+                    { name: "Taj Mahal", image: "Taj Mahal.png" },
+                    { name: "Tower of Pisa", image: "Tower of Pisa.png" }
+                ]
+            }
+        };
+
+        // --- POKER GENERATOR ---
+        function generatePokerCards() {
+            const suits = [
+                { name: 'Spades', symbol: '♠', color: 'text-black' },
+                { name: 'Hearts', symbol: '♥', color: 'text-red-600' },
+                { name: 'Clubs', symbol: '♣', color: 'text-black' },
+                { name: 'Diamonds', symbol: '♦', color: 'text-red-600' }
+            ];
+            const ranks = ['A', '2', '3', '4', '5', '6', '7', '8', '9', '10', 'J', 'Q', 'K'];
+            let deck = [];
             for (let s of suits) {
                 for (let r of ranks) {
                     deck.push({
-                        rank: r,
-                        suit: s.name,
-                        symbol: s.symbol,
-                        color: s.color,
-                        fullName: `${r === 'A'?'Ace':r==='K'?'King':r==='Q'?'Queen':r==='J'?'Jack':r} of ${s.name}`
+                        rank: r, suit: s.name, symbol: s.symbol, color: s.color,
+                        name: `${r === 'A'?'Ace':r==='K'?'King':r==='Q'?'Queen':r==='J'?'Jack':r} of ${s.name}`,
+                        type: 'poker'
                     });
                 }
             }
-            // Shuffle
-            for (let i = deck.length - 1; i > 0; i--) {
+            return deck;
+        }
+        DATA.cards.items = generatePokerCards();
+
+        // --- APP LOGIC ---
+        let currentCategory = null;
+        let scrollTimeout = null;
+        let synthesis = window.speechSynthesis;
+        window.currentUtterance = null; 
+
+        function loadCategory(key) {
+            currentCategory = key;
+            const data = DATA[key];
+            let displayItems = [...data.items];
+            shuffleArray(displayItems);
+
+            const scroller = document.getElementById('deck-scroller');
+            scroller.innerHTML = ''; 
+            document.getElementById('category-title').innerText = data.title;
+
+            displayItems.forEach(item => {
+                const el = document.createElement('div');
+                
+                el.className = `
+                    card-element
+                    flex-shrink-0 w-[280px] h-[420px] 
+                    rounded-2xl shadow-2xl 
+                    snap-center mx-4 relative 
+                    flex flex-col justify-between
+                    transform transition-all duration-300
+                    border-4 border-transparent
+                    overflow-hidden
+                    bg-white
+                `;
+
+                // Attach speak name
+                el.dataset.speakName = item.name;
+
+                if (data.type === 'poker') {
+                    // POKER RENDER
+                    el.classList.add('p-6');
+                    el.innerHTML = `
+                        <div class="text-3xl font-bold ${item.color} flex flex-col items-center leading-none">
+                            <span>${item.rank}</span><span class="text-2xl">${item.symbol}</span>
+                        </div>
+                        <div class="absolute inset-0 flex items-center justify-center">
+                            <span class="text-9xl ${item.color} opacity-100">${item.symbol}</span>
+                        </div>
+                        <div class="text-3xl font-bold ${item.color} flex flex-col items-center leading-none transform rotate-180">
+                            <span>${item.rank}</span><span class="text-2xl">${item.symbol}</span>
+                        </div>
+                    `;
+                } else {
+                    // PHOTO RENDER
+                    el.innerHTML = `
+                        <!-- IMAGE (Assumes .png in same folder) -->
+                        <img src="${item.image}" class="absolute inset-0 w-full h-full object-contain bg-white p-4" onerror="this.src='https://placehold.co/600x900?text=Image+Missing'">
+                        
+                        <!-- Optional Text Overlay (Visible only if image fails or for clarity) -->
+                        <div class="absolute bottom-0 w-full text-center bg-black/50 py-2 opacity-0 hover:opacity-100 transition-opacity">
+                            <h2 class="text-white font-bold text-sm uppercase tracking-widest">${item.name}</h2>
+                        </div>
+                    `;
+                }
+
+                scroller.appendChild(el);
+            });
+
+            document.getElementById('home-menu').classList.add('hidden');
+            document.getElementById('carousel-view').classList.remove('hidden');
+            setTimeout(() => document.getElementById('carousel-view').classList.remove('opacity-0'), 50);
+        }
+
+        function goHome() {
+            if (synthesis) synthesis.cancel();
+            if (scrollTimeout) clearTimeout(scrollTimeout);
+            document.getElementById('carousel-view').classList.add('opacity-0');
+            setTimeout(() => {
+                document.getElementById('carousel-view').classList.add('hidden');
+                document.getElementById('home-menu').classList.remove('hidden');
+                setTimeout(() => document.getElementById('home-menu').classList.remove('opacity-0'), 50);
+            }, 500);
+        }
+
+        function shuffleArray(array) {
+            for (let i = array.length - 1; i > 0; i--) {
                 const j = Math.floor(Math.random() * (i + 1));
-                [deck[i], deck[j]] = [deck[j], deck[i]];
+                [array[i], array[j]] = [array[j], array[i]];
             }
         }
 
-        function renderDeck() {
-            const scroller = document.getElementById('deck-scroller');
-            deck.forEach((card) => {
-                const cardEl = document.createElement('div');
-                cardEl.className = `card-element flex-shrink-0 w-[280px] h-[420px] bg-white rounded-2xl shadow-2xl snap-center mx-4 relative flex flex-col justify-between p-6 border-4 border-transparent transition-all duration-300`;
-                cardEl.innerHTML = `
-                    <div class="text-3xl font-bold ${card.color} flex flex-col items-center leading-none"><span>${card.rank}</span><span class="text-2xl">${card.symbol}</span></div>
-                    <div class="absolute inset-0 flex items-center justify-center"><span class="text-9xl ${card.color}">${card.symbol}</span></div>
-                    <div class="text-3xl font-bold ${card.color} flex flex-col items-center leading-none transform rotate-180"><span>${card.rank}</span><span class="text-2xl">${card.symbol}</span></div>
-                `;
-                scroller.appendChild(cardEl);
-            });
-        }
-
-        function startSpectatorApp() {
+        // --- AUDIO START ---
+        function startApp() {
             document.getElementById('start-overlay').style.opacity = '0';
-            setTimeout(() => document.getElementById('start-overlay').style.display = 'none', 500);
-            document.getElementById('deck-ui').classList.remove('opacity-0');
+            setTimeout(() => { document.getElementById('start-overlay').style.display = 'none'; }, 500);
+            document.getElementById('home-menu').classList.remove('hidden');
+            setTimeout(() => document.getElementById('home-menu').classList.remove('opacity-0'), 100);
+
+            if (synthesis) {
+                synthesis.cancel();
+                let wakeUp = new SpeechSynthesisUtterance("System online");
+                wakeUp.volume = 0.1; 
+                synthesis.speak(wakeUp);
+            }
         }
+        document.getElementById('start-btn').addEventListener('click', startApp);
 
-        // SCROLL LISTENER
-        document.getElementById('deck-scroller').addEventListener('scroll', () => {
+        // --- SCROLL DETECTION ---
+        const scroller = document.getElementById('deck-scroller');
+
+        scroller.addEventListener('scroll', () => {
             if (scrollTimeout) clearTimeout(scrollTimeout);
-            
-            // Remove pulse classes from all cards while scrolling
-            document.querySelectorAll('.card-element').forEach(c => {
-                c.classList.remove('selected-pulse');
-                c.classList.remove('selected-pulse-target');
-            });
-
-            scrollTimeout = setTimeout(identifyAndSend, 3000); // 3 Seconds wait
+            if (synthesis.speaking) synthesis.cancel();
+            scrollTimeout = setTimeout(identifyAndSpeak, WAIT_TIME_MS);
         });
 
-        function identifyAndSend() {
-            const scroller = document.getElementById('deck-scroller');
-            const cards = scroller.children;
+        function identifyAndSpeak() {
+            const cards = document.getElementsByClassName('card-element');
             const scrollerCenter = scroller.getBoundingClientRect().width / 2;
             let centerCardIndex = -1;
             let minDistance = Infinity;
@@ -267,6 +332,8 @@
                 const rect = cards[i].getBoundingClientRect();
                 const cardCenter = rect.left + (rect.width / 2);
                 const distance = Math.abs(scrollerCenter - cardCenter);
+                cards[i].classList.remove('selected-pulse'); 
+
                 if (distance < minDistance) {
                     minDistance = distance;
                     centerCardIndex = i;
@@ -274,17 +341,23 @@
             }
 
             if (centerCardIndex !== -1) {
-                const selectedCard = deck[centerCardIndex];
-                // Mark this card so the visual pulse works after data send
-                cards[centerCardIndex].classList.add('selected-pulse-target');
-                
-                // CALL THE CLOUD FUNCTION
-                if (window.sendSelectionToCloud) {
-                    window.sendSelectionToCloud(selectedCard.fullName);
-                }
+                const cardElement = cards[centerCardIndex];
+                cardElement.classList.add('selected-pulse'); 
+
+                // READ THE DATA ATTRIBUTE
+                let textToSpeak = cardElement.dataset.speakName;
+                speak(textToSpeak);
             }
+        }
+
+        function speak(text) {
+            if (!synthesis) return;
+            synthesis.cancel();
+            window.currentUtterance = new SpeechSynthesisUtterance(text);
+            window.currentUtterance.lang = 'en-US';
+            window.currentUtterance.rate = 0.9; 
+            synthesis.speak(window.currentUtterance);
         }
     </script>
 </body>
 </html>
-
